@@ -1,22 +1,27 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "preview": {
       "distribution": "internal",
       "autoIncrement": true,
-      "android": { "buildType": "apk" },
-      "env": { "NODE_ENV": "production" }
-    },
-    "emulator": {
-      "distribution": "internal",
-      "autoIncrement": true,
-      "android": { "buildType": "apk" },
-      "env": { "NODE_ENV": "production", "APK_SEMUA_ABI": "1" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "NODE_ENV": "production"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "android": { "buildType": "app-bundle" },
-      "env": { "NODE_ENV": "production" }
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "NODE_ENV": "production"
+      }
     }
   }
 }
