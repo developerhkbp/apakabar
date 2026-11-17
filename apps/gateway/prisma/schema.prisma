@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Status anggota: DIUNDANG (ada di daftar, belum aktivasi), MENUNGGU (nomor di luar daftar,
+// menunggu admin), AKTIF, DITANGGUHKAN.
+enum StatusAnggota {
+  DIUNDANG
+  MENUNGGU
+  AKTIF
+  DITANGGUHKAN
+}
+
+enum PeranGrup {
+  ANGGOTA
+  ADMIN_GRUP
+}
+
+enum PeranAnggota {
+  USER
+  ADMIN
+  ADMIN_UTAMA
+}
+
+model Anggota {
+  id               String        @id @default(cuid())
+  nomorHp          String        @unique // E.164 tanpa plus, mis. 62812xxxx
+  nama             String
+  sumberPelayanId  String? // id Pelayan di superapp (referensi saja)
+  status           StatusAnggota @default(DIUNDANG)
+  peran            PeranAnggota  @default(USER)
+  dibuatPada       DateTime      @default(now())
+  diubahPada       DateTime      @updatedAt
+  foto             Bytes? // JPEG kecil (≤ 64 KB), diperkecil di perangkat sebelum diunggah
+  fotoV            Int           @default(0)
+  perangkat        Perangkat?
+  pesanMasuk       PesanAntrean[] @relation("Penerima")
+  keanggotaanGrup  AnggotaGrup[]
+}
+
+// Grup obrolan. Kunci grup (Sender Key) dibuat dan dibagikan oleh anggota sendiri; server hanya meneruskan ciphertext.
+model Grup {
+  id            String        @id @default(uuid())
+  nama          String
+  idDistribusi  String        @default(uuid()) // diganti saat ada anggota dikeluarkan → semua pengirim wajib membagikan kunci baru
+  dibuatOleh    String
+  dibuatPada    DateTime      @default(now())
+  diubahPada    DateTime      @updatedAt
+  foto          Bytes?
+  fotoV         Int           @default(0)
+  anggota       AnggotaGrup[]
+}
+
+model AnggotaGrup {
+  grupId        String
+  grup          Grup       @relation(fields: [grupId], references: [id], onDelete: Cascade)
+  anggotaId     String
+  anggota       Anggota    @relation(fields: [anggotaId], references: [id], onDelete: Cascade)
+  peran         PeranGrup  @default(ANGGOTA)
+  bergabungPada DateTime   @default(now())
+
+  @@id([grupId, anggotaId])
+  @@index([anggotaId])
+}
+
+// Satu perangkat per anggota (v1).
+model Perangkat {
+  id                String   @id @default(cuid())
+  anggotaId         String   @unique
+  anggota           Anggota  @relation(fields: [anggotaId], references: [id], onDelete: Cascade)
+  registrationId    Int
+  identityKey       String // base64 kunci publik identitas
+  signedPreKeyId    Int
+  signedPreKey      String
+  signedPreKeySig   String
+  kyberPreKeyId     Int
+  kyberPreKey       String
+  kyberPreKeySig    String
+  pushToken         String?
+  versiToken        Int      @default(0) // dinaikkan saat perangkat diganti → token lama tidak berlaku
+  dibuatPada        DateTime @default(now())
+  prekeySekaliPakai OneTimePrekey[]
+}
+
+model OneTimePrekey {
+  id          String    @id @default(cuid())
+  perangkatId String
+  perangkat   Perangkat @relation(fields: [perangkatId], references: [id], onDelete: Cascade)
+  keyId       Int
+  kunci       String // base64 kunci publik
+  dibuatPada  DateTime  @default(now())
+
+  @@unique([perangkatId, keyId])
+}
+
+model OtpPermintaan {
+  id          String   @id @default(cuid())
+  nomorHp     String
+  hashKode    String // HMAC-SHA256, bukan kode asli
+  kedaluwarsa DateTime
+  percobaan   Int      @default(0)
+  terpakai    Boolean  @default(false)
+  dibuatPada  DateTime @default(now())
+  ip          String?
+
+  @@index([nomorHp, dibuatPada])
+}
+
+// Antrean ciphertext untuk penerima yang sedang offline. Server tidak bisa membaca isinya.
+model PesanAntrean {
+  id          String   @id @default(cuid())
+  penerimaId  String
+  penerima    Anggota  @relation("Penerima", fields: [penerimaId], references: [id], onDelete: Cascade)
+  pengirimId  String
+  jenis       Int // jenis ciphertext Signal (2 = biasa, 3 = prekey, 4 = pesan grup / Sender Key)
+  grupId      String? // terisi untuk jenis 4
+  isi         String // base64 ciphertext
+  idKlien     String // id pesan buatan klien (untuk dedup & tanda terima)
+  dibuatPada  DateTime @default(now())
+  kedaluwarsa DateTime
+  diterima    Boolean  @default(false) // setelah ack: isi dikosongkan, baris disimpan sebentar untuk dedup
+
+  @@unique([pengirimId, idKlien, penerimaId])
+  @@index([penerimaId, dibuatPada])
+}
+
+// Blob lampiran yang sudah dienkripsi di perangkat pengirim (AES-256-GCM). Server hanya menyimpan byte acak;
+// kunci ada di dalam pesan E2EE. Dihapus otomatis setelah kedaluwarsa.
+model Berkas {
+  id          String   @id @default(cuid())
+  pengunggah  String
+  ukuran      Int
+  dibuatPada  DateTime @default(now())
+  kedaluwarsa DateTime
+
+  @@index([kedaluwarsa])
+}

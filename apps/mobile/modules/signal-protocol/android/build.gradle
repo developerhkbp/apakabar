@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'id.or.hkbp.apakabar'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.signalprotocol"
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+
+dependencies {
+  // libsignal resmi dari Signal (AGPL-3.0). Berisi pustaka native Rust untuk semua ABI.
+  implementation 'org.signal:libsignal-android:0.86.5'
+  // Token FCM untuk notifikasi "Pesan baru" (inisialisasi Firebase lewat google-services.json di :app)
+  implementation 'com.google.firebase:firebase-messaging:24.1.0'
+}

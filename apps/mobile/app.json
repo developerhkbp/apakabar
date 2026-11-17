@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "ApaKabaR",
+    "slug": "apakabar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "id.or.hkbp.apakabar"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#06453D",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "id.or.hkbp.apakabar",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#075E54"
+    },
+    "plugins": [
+      "./plugins/with-desugaring",
+      "./plugins/with-secure-screen",
+      "expo-video",
+      "expo-sharing"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "137c2702-a565-45ea-abda-7f0e75abe0ca"
+      }
+    }
+  }
+}

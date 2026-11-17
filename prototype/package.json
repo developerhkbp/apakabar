@@ -1,0 +1,9 @@
+{
+  "name": "apakabar-prototype",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "dependencies": {
+    "@signalapp/libsignal-client": "^0.108.0"
+  }
+}
