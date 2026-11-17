@@ -25,6 +25,7 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
   const [halaman, setHalaman] = useState(1)
   const [jumlah, setJumlah] = useState<Record<string, number>>({})
   const [sibuk, setSibuk] = useState(false)
+  const [dimuat, setDimuat] = useState(false) // sudah ada jawaban untuk tab/pencarian ini
   const [galat, setGalat] = useState('')
   const [formTambah, setFormTambah] = useState(false)
   const permintaan = useRef(0)
@@ -39,9 +40,10 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
       setTotal(r.total)
       setHalaman(hal)
       setJumlah(rg)
+      setDimuat(true)
       setGalat('')
     } catch (e) {
-      if (no === permintaan.current) setGalat((e as Error).message)
+      if (no === permintaan.current) { setGalat((e as Error).message); setDimuat(true) }
     } finally {
       if (no === permintaan.current) setSibuk(false)
     }
@@ -128,7 +130,7 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
       {formTambah ? <FormTambah token={sesi.token} selesai={() => { setFormTambah(false); setTab('AKTIF'); muat(1) }} /> : null}
       <View style={s.tab}>
         {TAB.map(t => (
-          <Pressable key={t.status} style={[s.tabItem, tab === t.status && s.tabAktif]} onPress={() => { setData([]); setTab(t.status) }}>
+          <Pressable key={t.status} style={[s.tabItem, tab === t.status && s.tabAktif]} onPress={() => { if (t.status === tab) return; setData([]); setTotal(0); setDimuat(false); setTab(t.status) }}>
             <Text style={[s.tabTeks, tab === t.status && s.tabTeksAktif]}>{t.label}{jumlah[t.status] ? ` (${jumlah[t.status]})` : ''}</Text>
           </Pressable>
         ))}
@@ -147,10 +149,10 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
         data={data}
         keyExtractor={a => a.id}
         renderItem={({ item }) => baris(item)}
-        onEndReached={() => { if (!sibuk && data.length < total) muat(halaman + 1) }}
+        onEndReached={() => { if (dimuat && !sibuk && data.length > 0 && data.length < total) muat(halaman + 1) }}
         onEndReachedThreshold={0.4}
-        ListEmptyComponent={sibuk ? <ActivityIndicator style={{ margin: 32 }} /> : <Text style={s.kosong}>Tidak ada anggota di daftar ini.</Text>}
-        ListFooterComponent={sibuk && data.length ? <ActivityIndicator style={{ margin: 16 }} /> : undefined}
+        ListEmptyComponent={!dimuat ? <ActivityIndicator style={{ margin: 32 }} /> : galat ? undefined : <Text style={s.kosong}>Tidak ada anggota di daftar ini.</Text>}
+        ListFooterComponent={sibuk && halaman > 1 && data.length ? <ActivityIndicator style={{ margin: 16 }} /> : undefined}
       />
     </View>
   )

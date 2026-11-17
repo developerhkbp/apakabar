@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar'
+import Signal from './modules/signal-protocol/src'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import {
   adminRingkasan, daftarAnggota, daftarGrup, detailGrup, keluar, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
   simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
@@ -214,6 +215,15 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     const t = setInterval(muat, 15000)
     return () => clearInterval(t)
   }, [adalahAdmin, sesi.token])
+
+  // Ketuk notifikasi "menunggu persetujuan" → langsung buka layar admin (saat aplikasi dibuka atau kembali aktif)
+  useEffect(() => {
+    if (!adalahAdmin) return
+    const cek = () => { if (Signal.tujuanNotifikasi() === 'persetujuan') setLayar({ j: 'admin' }) }
+    cek()
+    const l = AppState.addEventListener('change', st => { if (st === 'active') cek() })
+    return () => l.remove()
+  }, [adalahAdmin])
 
   const sesiSaya = { ...sesi, peran }
 

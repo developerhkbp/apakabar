@@ -31,6 +31,7 @@ type Native = {
   dekripsiGrup(dari: string, isi: string): Promise<string>
   /** Token FCM perangkat ini. */
   tokenPush(): Promise<string>
+  tujuanNotifikasi(): string | null
   /** Brankas terenkripsi (Android Keystore) untuk data aplikasi. */
   simpan(nama: string, nilai: string): Promise<void>
   baca(nama: string): Promise<string | null>

@@ -10,9 +10,10 @@ import { AdminModule } from './admin/admin.module'
 import { BerkasModule } from './berkas/berkas.module'
 import { FotoModule } from './foto/foto.module'
 import { SehatController } from './sehat.controller'
+import { PeristiwaModule } from './common/peristiwa.service'
 
 @Module({
-  imports: [RedisModule, PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule],
+  imports: [RedisModule, PeristiwaModule,PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule],
   controllers: [SehatController],
 })
 export class AppModule {}

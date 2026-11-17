@@ -6,6 +6,7 @@ import { RedisService } from '../redis/redis.service'
 import { normalisasiNomor } from '../common/nomor'
 import { PaketPerangkatDto } from '../common/dto-perangkat'
 import { PengirimOtp } from './pengirim-otp'
+import { PeristiwaService } from '../common/peristiwa.service'
 
 const TTL_OTP_MS = 5 * 60 * 1000
 const JEDA_OTP_MS = parseInt(process.env.OTP_JEDA_DETIK ?? '60', 10) * 1000
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly redis: RedisService,
     @Inject(PENGIRIM_OTP) private readonly pengirim: PengirimOtp,
+    private readonly peristiwa: PeristiwaService,
   ) {}
 
   private hash(nomorHp: string, kode: string) {
@@ -113,6 +115,8 @@ export class AuthService {
       this.prisma.otpPermintaan.update({ where: { id: req.id }, data: { terpakai: true } }),
       this.prisma.anggota.update({ where: { id: anggota.id }, data: { status } }),
     ])
+    // Baru menjadi MENUNGGU: kabari admin (push + layar admin). Tidak boleh menggagalkan login.
+    if (status === 'MENUNGGU' && anggota.status !== 'MENUNGGU') this.peristiwa.emit('anggota-menunggu')
     return {
       anggota: { id: anggota.id, nama: anggota.nama, peran: anggota.peran, status },
       ...this.terbitkanToken(anggota.id, perangkat.versiToken),

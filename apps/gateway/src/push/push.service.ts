@@ -3,6 +3,8 @@ import { App, cert, initializeApp } from 'firebase-admin/app'
 import { getMessaging } from 'firebase-admin/messaging'
 import { readFileSync } from 'fs'
 import { PrismaService } from '../prisma/prisma.service'
+import { RedisService } from '../redis/redis.service'
+import { PeristiwaService } from '../common/peristiwa.service'
 
 const JEDA_PER_PENERIMA_MS = 5000
 
@@ -17,7 +19,8 @@ export class PushService {
   private app?: App
   private readonly terakhir = new Map<string, number>()
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(private readonly prisma: PrismaService, private readonly redis: RedisService, peristiwa: PeristiwaService) {
+    peristiwa.on('anggota-menunggu', () => { this.kabariAdminMenunggu().catch((e) => this.log.warn(`Push admin gagal: ${(e as Error).message}`)) })
     const jalur = process.env.FIREBASE_KEY_PATH
     if (!jalur) {
       this.log.warn('FIREBASE_KEY_PATH kosong — push dinonaktifkan')
@@ -33,6 +36,36 @@ export class PushService {
 
   async daftarkan(anggotaId: string, token: string) {
     await this.prisma.perangkat.update({ where: { anggotaId }, data: { pushToken: token } })
+  }
+
+  /**
+   * Kabari semua admin aktif bahwa ada anggota menunggu persetujuan. Tanpa nama (tetap tanpa metadata ke FCM).
+   * Dibatasi satu kali per 5 menit di seluruh replika agar gelombang pendaftar tidak membanjiri admin.
+   */
+  async kabariAdminMenunggu() {
+    if (!this.app) return
+    if ((await this.redis.tambahHitung('push-admin-menunggu', 300)) > 1) return
+    const admin = await this.prisma.perangkat.findMany({
+      where: { pushToken: { not: null }, anggota: { status: 'AKTIF', peran: { in: ['ADMIN', 'ADMIN_UTAMA'] } } },
+      select: { anggotaId: true, pushToken: true },
+    })
+    for (const p of admin) {
+      try {
+        await getMessaging(this.app).send({
+          token: p.pushToken!,
+          notification: { title: 'ApaKabaR', body: 'Ada anggota menunggu persetujuan' },
+          data: { tujuan: 'persetujuan' },
+          android: { priority: 'high', notification: { tag: 'menunggu-persetujuan' } },
+        })
+      } catch (e) {
+        const kode = (e as { code?: string }).code ?? ''
+        if (kode === 'messaging/registration-token-not-registered' || kode === 'messaging/invalid-registration-token') {
+          await this.prisma.perangkat.updateMany({ where: { anggotaId: p.anggotaId, pushToken: p.pushToken }, data: { pushToken: null } })
+        } else {
+          this.log.warn(`Push admin gagal: ${kode || (e as Error).message}`)
+        }
+      }
+    }
   }
 
   /** Dipanggil saat pesan masuk antrean dan penerima sedang tidak terhubung. */

@@ -162,6 +162,14 @@ class SignalProtocolModule : Module() {
       }
     }
 
+    /** Tujuan dari notifikasi yang diketuk (extra "tujuan" pada intent peluncuran); dibaca sekali lalu dihapus. */
+    Function("tujuanNotifikasi") {
+      val intent = appContext.currentActivity?.intent
+      val tujuan = intent?.getStringExtra("tujuan")
+      if (tujuan != null) intent?.removeExtra("tujuan")
+      tujuan
+    }
+
     // --- Brankas terenkripsi untuk data aplikasi (token, riwayat pesan) ---
     AsyncFunction("simpan") { nama: String, nilai: String -> brankas.tulis("data-$nama", nilai.toByteArray(Charsets.UTF_8)) }
     AsyncFunction("baca") { nama: String -> brankas.baca("data-$nama")?.let { String(it, Charsets.UTF_8) } }
