@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { RedisModule } from './redis/redis.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
 import { PrekeyModule } from './prekey/prekey.module'
@@ -9,5 +10,5 @@ import { AdminModule } from './admin/admin.module'
 import { BerkasModule } from './berkas/berkas.module'
 import { FotoModule } from './foto/foto.module'
 
-@Module({ imports: [PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule] })
+@Module({ imports: [RedisModule, PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule] })
 export class AppModule {}

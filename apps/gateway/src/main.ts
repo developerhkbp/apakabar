@@ -7,6 +7,8 @@ import { AppModule } from './app.module'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
+  // Di belakang ingress/load balancer, IP klien ada di X-Forwarded-For; tanpa ini semua permintaan tampak berasal dari satu IP.
+  if (process.env.TRUST_PROXY) app.getHttpAdapter().getInstance().set('trust proxy', parseInt(process.env.TRUST_PROXY, 10) || 1)
   app.useWebSocketAdapter(new WsAdapter(app))
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))
   app.enableShutdownHooks()

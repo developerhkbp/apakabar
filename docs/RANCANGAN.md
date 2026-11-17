@@ -157,3 +157,12 @@ Belum: iOS (libsignal binding, APNs, Keychain), pengiriman OTP WhatsApp sungguha
 - **Foto profil dan foto grup**: dipilih, dipotong persegi, dan diperkecil ke ±320 px JPEG di perangkat sebelum diunggah (server menolak non-JPEG atau >64 KB). Disimpan di kolom `foto`/`fotoV` (Anggota, Grup); alamat `GET /foto/{anggota|grup}/:id?v=` ikut versi sehingga cache klien selalu segar. Foto grup hanya boleh diganti admin grup atau admin aplikasi. Setiap pengguna punya layar Profil (foto, nama, lencana admin).
 - **Beranda**: hanya memuat obrolan yang sudah berjalan, yang terbaru di atas. Ribuan anggota tidak dibuat daftar panjang: dicari lewat kolom cari (maks 30 hasil) atau dipilih dari tombol **Obrolan baru** (daftar tervirtualisasi + pencarian).
 - Uji: `uji-e2e` 11, `uji-admin` 44, `uji-berkas` 7, `uji-foto` 11.
+
+## Redis: relay antar-replika & pembatas OTP (2026-11-17)
+
+Opsional lewat `REDIS_URL` (tanpa itu gateway berjalan di memori satu proses, seperti sebelumnya).
+- **Relay antar-replika:** kanal pub/sub `apakabar:relay`. Pesan untuk anggota yang tersambung di replika lain diterbitkan ke kanal; replika pemilik koneksi mengantarnya. Kehadiran dicatat di kunci `online:<id>` (isi = id instans, TTL 90 dtk, diperbarui tiap 30 dtk) sehingga replika mana pun tahu apakah penerima online (jika tidak → push FCM). Koneksi baru seorang anggota menutup koneksi lamanya di replika lain (kode 4001); pencabutan akses (`putuskan`) juga lintas replika.
+- **Pembatas OTP per IP:** `OTP_MAKS_PER_IP_JAM` (bawaan 30/jam), penghitung Redis `hitung:otp-ip:<ip>`. Di belakang ingress set `TRUST_PROXY=1` agar IP klien dibaca dari `X-Forwarded-For`.
+- Pesan tetap disimpan di Postgres (antrean) sehingga Redis hanya mempercepat pengantaran langsung; bila Redis mati, pengantaran lintas replika gagal tetapi pesan tetap diantre dan terkirim saat penerima tersambung lagi.
+- Uji: `npx ts-node --transpile-only test/uji-redis.ts` (dua replika + Redis tiruan, 9 pemeriksaan).
+- Produksi: gunakan Redis yang sudah ada di cluster (`hkbp-redis-node-*`) dengan prefiks kunci terpisah (`apakabar:`/`online:`/`hitung:`), atau instance khusus.

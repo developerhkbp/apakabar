@@ -2,6 +2,7 @@ import { createHmac, randomInt, timingSafeEqual } from 'crypto'
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { PrismaService } from '../prisma/prisma.service'
+import { RedisService } from '../redis/redis.service'
 import { normalisasiNomor } from '../common/nomor'
 import { PaketPerangkatDto } from '../common/dto-perangkat'
 import { PengirimOtp } from './pengirim-otp'
@@ -10,6 +11,8 @@ const TTL_OTP_MS = 5 * 60 * 1000
 const JEDA_OTP_MS = parseInt(process.env.OTP_JEDA_DETIK ?? '60', 10) * 1000
 const MAKS_PERCOBAAN = 5
 const MAKS_OTP_PER_JAM = parseInt(process.env.OTP_MAKS_PER_JAM ?? '5', 10)
+// Batas per alamat IP (semua nomor): mencegah satu sumber memindai nomor atau menghabiskan kuota WhatsApp.
+const MAKS_OTP_PER_IP_JAM = parseInt(process.env.OTP_MAKS_PER_IP_JAM ?? '30', 10)
 
 export const PENGIRIM_OTP = 'PENGIRIM_OTP'
 export interface PayloadToken {
@@ -25,6 +28,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly redis: RedisService,
     @Inject(PENGIRIM_OTP) private readonly pengirim: PengirimOtp,
   ) {}
 
@@ -38,6 +42,9 @@ export class AuthService {
    * (atau diblokir) langsung ditolak tanpa mengirim WhatsApp, sehingga kuota pengiriman tidak terbuang.
    */
   async mintaOtp(nomorMentah: string, ip?: string) {
+    if (ip && (await this.redis.tambahHitung(`otp-ip:${ip}`, 3600)) > MAKS_OTP_PER_IP_JAM) {
+      throw new HttpException('Terlalu banyak permintaan dari jaringan ini. Coba lagi nanti', HttpStatus.TOO_MANY_REQUESTS)
+    }
     const generik = { pesan: 'Kode verifikasi dikirim lewat WhatsApp.', kodeDev: undefined as string | undefined }
     const nomorHp = normalisasiNomor(nomorMentah)
     if (!nomorHp) throw new BadRequestException('Format nomor HP tidak valid')

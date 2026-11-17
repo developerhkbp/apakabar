@@ -48,7 +48,7 @@ function sambung(token) {
   const terkirim = []
   ws.on('message', (d) => {
     const m = JSON.parse(d.toString())
-    if (m.t === 'masuk') masuk.push(m)
+    if (m.t === 'masuk' && m.jenis !== 6) masuk.push(m) // jenis 6 = tanda sampai/baca, bukan pesan obrolan
     if (m.t === 'terkirim') terkirim.push(m)
   })
   const buka = new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); ws.on('close', (c) => rej(new Error('ditutup ' + c))) })

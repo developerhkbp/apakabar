@@ -1,14 +1,25 @@
 import { IncomingMessage } from 'http'
+import { randomUUID } from 'crypto'
 import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets'
 import { WebSocket } from 'ws'
 import { AuthService } from '../auth/auth.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { PushService } from '../push/push.service'
+import { RedisService } from '../redis/redis.service'
+
+const KANAL = 'apakabar:relay'
 
 const TTL_ANTREAN_MS = 30 * 24 * 3600 * 1000
 const MAKS_ISI = 256 * 1024 // karakter base64 (pesan lampiran membawa hingga 10 thumbnail kecil)
 const MAKS_PESAN_PER_MENIT = 2500 // termasuk pembagian kunci grup (maks. satu per anggota, jadi harus > MAKS_ANGGOTA_GRUP)
+
+interface PesanAntarReplika {
+  ke: string
+  dari: string // id instans pengirim
+  data?: unknown
+  tutup?: { kode: number; alasan: string }
+}
 
 interface Koneksi extends WebSocket {
   anggotaId?: string
@@ -28,16 +39,55 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   private readonly log = new Logger('Relay')
   private readonly online = new Map<string, Koneksi>()
   private pembersih?: NodeJS.Timeout
+  private denyut?: NodeJS.Timeout
+  /** Identitas replika ini; dipakai agar pesan antar-replika tidak berputar ke pengirimnya. */
+  readonly instans = randomUUID()
 
-  constructor(private readonly auth: AuthService, private readonly prisma: PrismaService, private readonly push: PushService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly prisma: PrismaService,
+    private readonly push: PushService,
+    private readonly redis: RedisService,
+  ) {}
 
   onModuleInit() {
+    if (this.redis.aktif) {
+      // Replika lain meminta kita mengantar pesan / menutup koneksi anggota yang tersambung di sini.
+      this.redis.langgan(KANAL, (m) => this.dariReplikaLain(m as PesanAntarReplika)).catch((e) => this.log.error(`Gagal berlangganan Redis: ${e.message}`))
+      this.denyut = setInterval(() => {
+        for (const id of this.online.keys()) this.redis.tandaiOnline(id, this.instans)
+      }, 30_000)
+    }
     this.pembersih = setInterval(() => {
       this.prisma.pesanAntrean.deleteMany({ where: { kedaluwarsa: { lt: new Date() } } }).catch(() => undefined)
     }, 3600_000)
   }
   onModuleDestroy() {
     if (this.pembersih) clearInterval(this.pembersih)
+    if (this.denyut) clearInterval(this.denyut)
+  }
+
+  private dariReplikaLain(m: PesanAntarReplika) {
+    if (!m || m.dari === this.instans) return
+    const ws = this.online.get(m.ke)
+    if (!ws) return
+    if (m.tutup) ws.close(m.tutup.kode, m.tutup.alasan)
+    else this.kirimKe(ws, m.data)
+  }
+
+  /**
+   * Mengantar ke anggota yang sedang online, di replika ini maupun replika lain.
+   * Mengembalikan false bila anggota luring (pemanggil lalu mengirim push).
+   */
+  async antar(anggotaId: string, data: unknown): Promise<boolean> {
+    const ws = this.online.get(anggotaId)
+    if (ws) {
+      this.kirimKe(ws, data)
+      return true
+    }
+    if (!this.redis.aktif || !(await this.redis.adaOnline(anggotaId))) return false
+    await this.redis.terbitkan(KANAL, { ke: anggotaId, data, dari: this.instans } satisfies PesanAntarReplika)
+    return true
   }
 
   handleConnection(ws: Koneksi, req: IncomingMessage) {
@@ -52,8 +102,10 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       const pengguna = await this.auth.periksaSesi(payload)
       // Satu perangkat per anggota: koneksi lama (bila ada) ditutup.
       this.online.get(pengguna.id)?.close(4001, 'Digantikan koneksi baru')
+      if (this.redis.aktif) await this.redis.terbitkan(KANAL, { ke: pengguna.id, tutup: { kode: 4001, alasan: 'Digantikan koneksi baru' }, dari: this.instans } satisfies PesanAntarReplika)
       ws.anggotaId = pengguna.id
       this.online.set(pengguna.id, ws)
+      await this.redis.tandaiOnline(pengguna.id, this.instans)
       this.kirimKe(ws, { t: 'siap' })
       await this.kosongkanAntrean(ws)
     } catch {
@@ -63,7 +115,10 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   }
 
   handleDisconnect(ws: Koneksi) {
-    if (ws.anggotaId && this.online.get(ws.anggotaId) === ws) this.online.delete(ws.anggotaId)
+    if (ws.anggotaId && this.online.get(ws.anggotaId) === ws) {
+      this.online.delete(ws.anggotaId)
+      this.redis.hapusOnline(ws.anggotaId, this.instans).catch(() => undefined)
+    }
   }
 
   private kirimKe(ws: WebSocket, data: unknown) {
@@ -130,9 +185,8 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     }
 
     this.kirimKe(ws, { t: 'terkirim', idKlien: d.idKlien, id })
-    const tujuan = this.online.get(penerima.id)
-    if (tujuan) this.kirimKe(tujuan, { t: 'masuk', id, dari: ws.anggotaId, jenis: d.jenis, isi: d.isi, idKlien: d.idKlien, waktu: dibuat.getTime() })
-    else this.push.kabari(penerima.id).catch(() => undefined) // penerima luring → bangunkan lewat push
+    const terantar = await this.antar(penerima.id, { t: 'masuk', id, dari: ws.anggotaId, jenis: d.jenis, isi: d.isi, idKlien: d.idKlien, waktu: dibuat.getTime() })
+    if (!terantar) this.push.kabari(penerima.id).catch(() => undefined) // penerima luring → bangunkan lewat push
   }
 
   /** Kirim ciphertext grup (Sender Key). Server menggandakan ke setiap anggota aktif lain; isinya tetap tak terbaca. */
@@ -173,11 +227,10 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       return this.kirimKe(ws, { t: 'galat', pesan: 'Pesan belum bisa dikirim' })
     }
     this.kirimKe(ws, { t: 'terkirim', idKlien: d.idKlien })
-    for (const b of baru) {
-      const ke = this.online.get(b.penerimaId)
-      if (ke) this.kirimKe(ke, { t: 'masuk', id: b.id, dari: ws.anggotaId, grupId: d.grupId, jenis: 4, isi: d.isi, idKlien: d.idKlien, waktu: b.dibuatPada.getTime() })
-      else this.push.kabari(b.penerimaId).catch(() => undefined)
-    }
+    await Promise.all(baru.map(async (b) => {
+      const terantar = await this.antar(b.penerimaId, { t: 'masuk', id: b.id, dari: ws.anggotaId, grupId: d.grupId, jenis: 4, isi: d.isi, idKlien: d.idKlien, waktu: b.dibuatPada.getTime() })
+      if (!terantar) this.push.kabari(b.penerimaId).catch(() => undefined)
+    }))
   }
 
   /**
@@ -224,10 +277,7 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       skipDuplicates: true,
       select: { id: true, penerimaId: true, dibuatPada: true },
     })
-    for (const b of baru) {
-      const ke = this.online.get(b.penerimaId)
-      if (ke) this.kirimKe(ke, { t: 'masuk', id: b.id, dari: ws.anggotaId, grupId: d.grupId, jenis: 5, isi, idKlien: `hapus:${d.pengirimId}:${d.idKlien}`, waktu: b.dibuatPada.getTime() })
-    }
+    await Promise.all(baru.map((b) => this.antar(b.penerimaId, { t: 'masuk', id: b.id, dari: ws.anggotaId, grupId: d.grupId, jenis: 5, isi, idKlien: `hapus:${d.pengirimId}:${d.idKlien}`, waktu: b.dibuatPada.getTime() })))
   }
 
   /** Hapus untuk semua pada percakapan 1:1: hanya pengirim asli yang boleh menghapus pesannya sendiri. */
@@ -243,23 +293,18 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       skipDuplicates: true,
       select: { id: true, penerimaId: true, dibuatPada: true },
     })
-    for (const b of baru) {
-      const ke = this.online.get(b.penerimaId)
-      if (ke) this.kirimKe(ke, { t: 'masuk', id: b.id, dari: ws.anggotaId, jenis: 5, isi, idKlien: kunci, waktu: b.dibuatPada.getTime() })
-    }
+    await Promise.all(baru.map((b) => this.antar(b.penerimaId, { t: 'masuk', id: b.id, dari: ws.anggotaId, jenis: 5, isi, idKlien: kunci, waktu: b.dibuatPada.getTime() })))
   }
 
   /** Dipakai modul lain untuk mengabari anggota yang sedang online (mis. grup berubah). */
   beritahu(anggotaIds: string[], data: unknown) {
-    for (const id of new Set(anggotaIds)) {
-      const ws = this.online.get(id)
-      if (ws) this.kirimKe(ws, data)
-    }
+    for (const id of new Set(anggotaIds)) this.antar(id, data).catch(() => undefined)
   }
 
   /** Menutup koneksi live seorang anggota (diblokir/dikeluarkan). */
   putuskan(anggotaId: string) {
     this.online.get(anggotaId)?.close(4401, 'Akses dicabut')
+    if (this.redis.aktif) this.redis.terbitkan(KANAL, { ke: anggotaId, tutup: { kode: 4401, alasan: 'Akses dicabut' }, dari: this.instans } satisfies PesanAntarReplika).catch(() => undefined)
   }
 
   @SubscribeMessage('ack')
@@ -304,7 +349,6 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       skipDuplicates: true,
       select: { id: true, dibuatPada: true },
     })
-    const ke = this.online.get(kepada)
-    for (const b of baru) if (ke) this.kirimKe(ke, { t: 'masuk', id: b.id, dari: oleh, grupId: grupId ?? undefined, jenis: 6, isi, idKlien: kunci, waktu: b.dibuatPada.getTime() })
+    await Promise.all(baru.map((b) => this.antar(kepada, { t: 'masuk', id: b.id, dari: oleh, grupId: grupId ?? undefined, jenis: 6, isi, idKlien: kunci, waktu: b.dibuatPada.getTime() })))
   }
 }
