@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
+    "start": "node dist/src/main.js",
     "dev": "ts-node --transpile-only src/main.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -13,6 +13,7 @@
     "uji": "node test/uji-e2e.mjs"
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.4.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
@@ -28,6 +29,7 @@
     "firebase-admin": "^14.5.1",
     "ioredis": "^6.0.0",
     "pg": "^8.20.0",
+    "prisma": "^7.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "ws": "^8.18.0"
@@ -38,7 +40,6 @@
     "@types/pg": "^8.11.0",
     "@types/ws": "^8.5.0",
     "ioredis-mock": "^8.13.1",
-    "prisma": "^7.4.2",
     "ts-node": "^10.9.2",
     "typescript": "~5.9.2"
   }

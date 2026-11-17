@@ -1,8 +1,5 @@
 import { BadRequestException, Controller, Get, HttpCode, NotFoundException, Param, PayloadTooLargeException, Post, Req, Res, UseGuards } from '@nestjs/common'
 import type { Request, Response } from 'express'
-import { createReadStream, createWriteStream, existsSync } from 'fs'
-import { mkdir, rm, stat } from 'fs/promises'
-import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { JwtAuthGuard, Pengguna, PenggunaIni } from '../auth/jwt-auth.guard'
 import { PrismaService } from '../prisma/prisma.service'
@@ -20,21 +17,14 @@ export class BerkasController {
     const panjang = parseInt(req.headers['content-length'] ?? '0', 10)
     if (!panjang) throw new BadRequestException('Berkas kosong')
     if (panjang > MAKS_BERKAS) throw new PayloadTooLargeException('Berkas terlalu besar')
-    await mkdir(this.berkas.folder, { recursive: true })
     const id = randomUUID()
-    const tujuan = join(this.berkas.folder, id)
-    let total = 0
-    await new Promise<void>((selesai, gagal) => {
-      const tulis = createWriteStream(tujuan)
-      req.on('data', (c: Buffer) => {
-        total += c.length
-        if (total > MAKS_BERKAS) { req.destroy(); tulis.destroy(); gagal(new PayloadTooLargeException('Berkas terlalu besar')) }
-      })
-      req.on('error', gagal)
-      tulis.on('error', gagal)
-      tulis.on('finish', selesai)
-      req.pipe(tulis)
-    }).catch(async e => { await rm(tujuan, { force: true }); throw e })
+    let total: number
+    try {
+      total = await this.berkas.simpan(id, req, MAKS_BERKAS)
+    } catch (e) {
+      if ((e as Error).message === 'melebihi-batas') throw new PayloadTooLargeException('Berkas terlalu besar')
+      throw e
+    }
     await this.prisma.berkas.create({ data: { id, pengunggah: p.id, ukuran: total, kedaluwarsa: new Date(Date.now() + this.berkas.masaSimpanMs) } })
     return { id, ukuran: total }
   }
@@ -43,12 +33,13 @@ export class BerkasController {
   async unduh(@Param('id') id: string, @Res() res: Response) {
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new NotFoundException('Berkas tidak ditemukan')
     const baris = await this.prisma.berkas.findUnique({ where: { id }, select: { id: true, kedaluwarsa: true } })
-    const jalur = join(this.berkas.folder, id)
-    if (!baris || baris.kedaluwarsa < new Date() || !existsSync(jalur)) throw new NotFoundException('Berkas sudah tidak tersedia')
-    const { size } = await stat(jalur)
+    if (!baris || baris.kedaluwarsa < new Date()) throw new NotFoundException('Berkas sudah tidak tersedia')
+    const blob = await this.berkas.buka(id)
+    if (!blob) throw new NotFoundException('Berkas sudah tidak tersedia')
     res.setHeader('Content-Type', 'application/octet-stream')
-    res.setHeader('Content-Length', size)
+    res.setHeader('Content-Length', blob.ukuran)
     res.setHeader('Cache-Control', 'private, no-store')
-    createReadStream(jalur).pipe(res)
+    blob.aliran.on('error', () => res.destroy())
+    blob.aliran.pipe(res)
   }
 }
