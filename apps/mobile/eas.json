@@ -7,6 +7,12 @@
       "android": { "buildType": "apk" },
       "env": { "NODE_ENV": "production" }
     },
+    "emulator": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": { "buildType": "apk" },
+      "env": { "NODE_ENV": "production", "APK_SEMUA_ABI": "1" }
+    },
     "production": {
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },

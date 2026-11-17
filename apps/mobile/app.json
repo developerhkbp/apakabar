@@ -35,6 +35,7 @@
     "plugins": [
       "./plugins/with-desugaring",
       "./plugins/with-abi",
+      "./plugins/with-keep-signal",
       "./plugins/with-secure-screen",
       "expo-video",
       "expo-sharing"

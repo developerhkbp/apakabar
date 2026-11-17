@@ -266,7 +266,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           const isi = bungkusLampiran(teks, await unggahSemua(u => obrolan.current!.unggahBerkas(u), berkas, progres))
           try {
             tambah(lawan.id, await obrolan.current!.kirim(lawan.id, isi))
-          } catch {
+          } catch (e) {
+            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
             tambah(lawan.id, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal' })
           }
         }}
@@ -274,7 +275,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         kirim={async teks => {
           try {
             tambah(lawan.id, await obrolan.current!.kirim(lawan.id, await siapkanIsi(teks)))
-          } catch {
+          } catch (e) {
+            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
             tambah(lawan.id, { id: String(Date.now()), dari: sesi.id, teks, waktu: Date.now(), saya: true, status: 'gagal' })
           }
         }}
@@ -305,7 +307,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           try {
             const d: DetailGrup = await detailGrup(sesi.token, g.id)
             tambah(k, await obrolan.current!.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi))
-          } catch {
+          } catch (e) {
+            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
             tambah(k, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal' })
           }
         }}
@@ -319,7 +322,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           try {
             const d: DetailGrup = await detailGrup(sesi.token, g.id) // daftar anggota & kunci grup terbaru
             tambah(k, await obrolan.current!.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, await siapkanIsi(teks)))
-          } catch {
+          } catch (e) {
+            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
             tambah(k, { id: String(Date.now()), dari: sesi.id, teks, waktu: Date.now(), saya: true, status: 'gagal' })
           }
         }}
