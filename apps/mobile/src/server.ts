@@ -2,8 +2,9 @@ import { PermissionsAndroid, Platform } from 'react-native'
 import Signal, { type BundleLawan } from '../modules/signal-protocol/src'
 import type { Lampiran } from './konten'
 
-// Emulator: jalankan `adb reverse tcp:3101 tcp:3101` agar localhost menjangkau gateway di PC.
-export const BASE = 'http://localhost:3101'
+// Produksi: https://apakabar.hkbp.or.id. Untuk pengembangan di emulator, jalankan `adb reverse tcp:3101 tcp:3101`
+// dan mulai dengan EXPO_PUBLIC_API_URL=http://localhost:3101 (bundel memakai nilai ini saat build).
+export const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://apakabar.hkbp.or.id'
 
 export type Anggota = { id: string; nama: string; fotoV?: number }
 /** `ref` = id pesan buatan pengirim (sama untuk semua penerima grup); dipakai untuk menghapus pesan. */

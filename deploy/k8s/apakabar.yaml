@@ -38,6 +38,10 @@ spec:
             - { name: GCP_PROJECT_ID, value: hkbp-superapp-prod }
             - { name: FIREBASE_KEY_PATH, value: /secrets/firebase/firebase-key.json }
             - { name: NODE_OPTIONS, value: "--max-old-space-size=384" }
+            # Redis HA milik superapp (Bitnami + Sentinel); gateway memakai database nomor 1
+            - { name: REDIS_SENTINELS, value: "hkbp-redis:26379" }
+            - { name: REDIS_SENTINEL_MASTER, value: mymaster }
+            - { name: REDIS_DB, value: "1" }
           envFrom:
             # DATABASE_URL, REDIS_URL, JWT_SECRET, OTP_SECRET, WA_TOKEN, WA_PHONE_ID, WA_TEMPLATE_OTP
             - secretRef: { name: apakabar-secret }
@@ -88,6 +92,24 @@ spec:
     - matches: [{ path: { type: PathPrefix, value: / } }]
       backendRefs:
         - { group: "", kind: Service, name: apakabar-gateway, port: 80 }
+---
+# Health check load balancer: tanpa ini GKE mengetuk "/" (404) dan menganggap pod tidak sehat.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: apakabar-gateway
+  namespace: hkbp
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /sehat
+        port: 3101
+  targetRef:
+    group: ""
+    kind: Service
+    name: apakabar-gateway
 ---
 # Tanpa ini, load balancer GKE memutus WebSocket setelah 30 detik (batas waktu bawaan).
 apiVersion: networking.gke.io/v1

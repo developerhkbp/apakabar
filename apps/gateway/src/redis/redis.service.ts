@@ -19,10 +19,27 @@ export class RedisService implements OnModuleDestroy {
 
   constructor() {
     const url = process.env.REDIS_URL
-    this.aktif = !!url
-    if (!url) return
+    const sentinel = process.env.REDIS_SENTINELS // "host:port,host:port" — master dicari lewat Sentinel (Redis HA di cluster)
+    this.aktif = !!(url || sentinel)
+    if (!this.aktif) return
     const opsi = { maxRetriesPerRequest: 2 }
-    this.pasang(new Redis(url, opsi), new Redis(url, opsi))
+    if (sentinel) {
+      const daftar = sentinel.split(',').map((s) => {
+        const [host, port] = s.trim().split(':')
+        return { host, port: parseInt(port || '26379', 10) }
+      })
+      const sambungan = () => new Redis({
+        ...opsi,
+        sentinels: daftar,
+        name: process.env.REDIS_SENTINEL_MASTER ?? 'mymaster',
+        db: parseInt(process.env.REDIS_DB ?? '1', 10), // terpisah dari database 0 milik superapp
+        password: process.env.REDIS_PASSWORD || undefined,
+        sentinelPassword: process.env.REDIS_SENTINEL_PASSWORD || undefined,
+      })
+      this.pasang(sambungan(), sambungan())
+    } else {
+      this.pasang(new Redis(url!, opsi), new Redis(url!, opsi))
+    }
   }
 
   private pasang(perintah: Redis, pelanggan: Redis) {

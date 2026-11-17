@@ -9,6 +9,10 @@ import { GrupModule } from './grup/grup.module'
 import { AdminModule } from './admin/admin.module'
 import { BerkasModule } from './berkas/berkas.module'
 import { FotoModule } from './foto/foto.module'
+import { SehatController } from './sehat.controller'
 
-@Module({ imports: [RedisModule, PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule] })
+@Module({
+  imports: [RedisModule, PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule],
+  controllers: [SehatController],
+})
 export class AppModule {}
