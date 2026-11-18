@@ -162,13 +162,14 @@ export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusH
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
         data={orang}
         keyExtractor={l => l[0].anggotaId}
         initialNumToRender={6}
         windowSize={5}
         contentContainerStyle={{ paddingHorizontal: 12, gap: 10 }}
         ListHeaderComponent={
-          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tambah status" style={{ width: 132, height: '100%', marginRight: 10, borderRadius: 16, padding: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: HIJAU, backgroundColor: '#EAF2FC', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tambah status" style={{ width: 132, minHeight: 112, marginRight: 10, borderRadius: 16, padding: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: HIJAU, backgroundColor: '#EAF2FC', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: HIJAU_TUA, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: '#fff', fontSize: 26, marginTop: -2 }}>＋</Text>
             </View>
