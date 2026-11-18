@@ -48,6 +48,11 @@ export class StatusController {
     return this.status.hapusSaya(p)
   }
 
+  @Delete(':id')
+  hapus(@PenggunaIni() p: Pengguna, @Param('id') id: string) {
+    return this.status.hapus(id, p)
+  }
+
   @Get(':id/komentar')
   komentar(@PenggunaIni() p: Pengguna, @Param('id') id: string) {
     return this.status.komentar(id, p)

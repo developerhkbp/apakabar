@@ -60,9 +60,13 @@ export function GeserPesan({ children, balas, aksi }: { children: ReactNode; bal
           </View>
         </Animated.View>
       ) : null}
-      <View
+      {/* Tombol aksi hanya terlihat saat baris digeser ke kiri; tanpa ini tembus di sisi gelembung yang tidak menutupi lebar penuh. */}
+      <Animated.View
         pointerEvents={terbukaS ? 'auto' : 'none'}
-        style={{ position: 'absolute', right: 0, top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center' }}
+        style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center',
+          opacity: lebar > 0 ? x.interpolate({ inputRange: [-lebar, -16, 0], outputRange: [1, 0, 0], extrapolate: 'clamp' }) : 0,
+        }}
       >
         {aksi.map(a => (
           <Pressable key={a.label} onPress={() => { pindah(0, false); a.aksi() }} style={{ width: LEBAR_TOMBOL, alignItems: 'center', gap: 3 }}>
@@ -72,7 +76,7 @@ export function GeserPesan({ children, balas, aksi }: { children: ReactNode; bal
             <Text style={{ fontSize: 11, color: '#54656f' }} numberOfLines={1}>{a.label}</Text>
           </Pressable>
         ))}
-      </View>
+      </Animated.View>
       <Animated.View style={{ transform: [{ translateX: x }] }} {...pan.panHandlers}>
         {children}
       </Animated.View>

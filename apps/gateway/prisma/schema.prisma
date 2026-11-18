@@ -44,7 +44,7 @@ model Anggota {
   perangkat        Perangkat?
   pesanMasuk       PesanAntrean[] @relation("Penerima")
   keanggotaanGrup  AnggotaGrup[]
-  statusHarian     StatusHarian?
+  statusHarian     StatusHarian[]
   komentarStatus   StatusKomentar[]
 }
 
@@ -52,7 +52,7 @@ model Anggota {
 // yang sama-sama ada di grup buatan manual (bukan grup otomatis). Tidak dienkripsi ujung ke ujung: server dapat membacanya.
 model StatusHarian {
   id          String           @id @default(cuid())
-  anggotaId   String           @unique
+  anggotaId   String
   anggota     Anggota          @relation(fields: [anggotaId], references: [id], onDelete: Cascade)
   teks        String
   suasana     String? // satu emoji suasana hati
@@ -61,6 +61,7 @@ model StatusHarian {
   komentar    StatusKomentar[]
 
   @@index([kedaluwarsa])
+  @@index([anggotaId, kedaluwarsa])
 }
 
 model StatusKomentar {

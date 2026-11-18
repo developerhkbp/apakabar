@@ -491,6 +491,18 @@ export type StatusHarian = {
 export type KomentarStatus = { id: string; anggotaId: string; nama: string; teks: string; dibuatPada: string }
 export const daftarStatus = (token: string) => api<StatusHarian[]>('GET', '/status', undefined, token)
 export const simpanStatus = (token: string, teks: string, suasana?: string) => api<StatusHarian>('POST', '/status', { teks, suasana }, token)
+/** Salinan status milik sendiri di HP (brankas terenkripsi): tetap ada setelah status 24 jam berakhir di server. */
+export type ArsipStatus = { id: string; teks: string; suasana: string | null; dibuatPada: string }
+export async function muatArsipStatus(): Promise<ArsipStatus[]> {
+  try {
+    const t = await Signal.baca('status-saya')
+    return t ? (JSON.parse(t) as ArsipStatus[]) : []
+  } catch {
+    return []
+  }
+}
+export const simpanArsipStatus = (a: ArsipStatus[]) => Signal.simpan('status-saya', JSON.stringify(a)).catch(() => {})
+export const hapusStatus = (token: string, id: string) => api<{ ok: boolean }>('DELETE', `/status/${id}`, undefined, token)
 export const hapusStatusSaya = (token: string) => api<{ ok: boolean }>('DELETE', '/status', undefined, token)
 export const daftarKomentarStatus = (token: string, id: string) => api<KomentarStatus[]>('GET', `/status/${id}/komentar`, undefined, token)
 export const kirimKomentarStatus = (token: string, id: string, teks: string) => api<KomentarStatus>('POST', `/status/${id}/komentar`, { teks }, token)

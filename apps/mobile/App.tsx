@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActivityIndicator, Alert, AppState, BackHandler, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
-  adaOnline, adminRingkasan, blokirAnggota, bukaBlokirAnggota, bungkusReaksi, klaimRiwayat, mintaIzin, ringkasanKontak, statusKontak, terimaIzin, tolakIzin, daftarAnggota, daftarGrup, daftarKomentarStatus, daftarStatus, detailGrup, hapusKomentarStatus, hapusStatusSaya, keluar, kirimKomentarStatus, simpanStatus, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
+  adaOnline, adminRingkasan, blokirAnggota, bukaBlokirAnggota, bungkusReaksi, klaimRiwayat, mintaIzin, ringkasanKontak, statusKontak, terimaIzin, tolakIzin, daftarAnggota, daftarGrup, daftarKomentarStatus, daftarStatus, detailGrup, hapusKomentarStatus, hapusStatus, muatArsipStatus, simpanArsipStatus, keluar, kirimKomentarStatus, simpanStatus, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
   profilAnggota, simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
-  GalatApi, type PermintaanObrolan, type StatusKontak, type Anggota, type DetailGrup, type StatusHarian, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
+  GalatApi, type PermintaanObrolan, type StatusKontak, type Anggota, type DetailGrup, type ArsipStatus, type StatusHarian, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
 } from './src/server'
 import { awalNama, EMAS_TUA, s, setTemaAdmin, waktuDaftar } from './src/gaya'
 import { Menunggu } from './src/layar/Menunggu'
@@ -186,6 +186,25 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     return () => { clearInterval(t); l.remove() }
   }, [muatStatus])
   const statusSaya = statusList.find(x => x.saya) ?? null
+  // Arsip status saya di HP: status yang sudah lewat 24 jam hilang dari server, tetapi salinannya tetap ada di sini.
+  const [arsip, setArsip] = useState<ArsipStatus[]>([])
+  const [arsipSiap, setArsipSiap] = useState(false)
+  useEffect(() => { muatArsipStatus().then(d => { setArsip(d); setArsipSiap(true) }) }, [])
+  useEffect(() => {
+    if (!arsipSiap) return
+    const milik = statusList.filter(x => x.saya)
+    if (!milik.length) return
+    setArsip(lama => {
+      const ada = new Set(lama.map(a => a.id))
+      const baru = milik.filter(m => !ada.has(m.id)).map(({ id, teks, suasana, dibuatPada }) => ({ id, teks, suasana, dibuatPada }))
+      if (!baru.length) return lama
+      const hasil = [...baru, ...lama].sort((a, b) => b.dibuatPada.localeCompare(a.dibuatPada)).slice(0, 300)
+      simpanArsipStatus(hasil)
+      return hasil
+    })
+  }, [statusList, arsipSiap])
+  const hapusArsip = (id: string) => setArsip(lama => { const hasil = lama.filter(a => a.id !== id); simpanArsipStatus(hasil); return hasil })
+  const tambahStatus = async (teks: string, suasana?: string) => { await simpanStatus(sesi.token, teks, suasana); muatStatus() }
   // Permintaan izin pesan & daftar blokir: dimuat saat masuk, saat aplikasi aktif, tiap menit, dan saat ada kabar dari server.
   const muatKontak = useCallback(() => { ringkasanKontak(sesi.token).then(setKontak).catch(() => {}) }, [sesi.token])
   const muatIzin = useCallback((id: string) => { statusKontak(sesi.token, id).then(st => setIzin(x => ({ ...x, [id]: st }))).catch(() => {}) }, [sesi.token])
@@ -675,10 +694,12 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           muat={() => profilAnggota(sesi.token, sesi.id)} saya
           tambahan={
             <KartuStatusSaya
-              status={statusSaya}
-              simpan={async (teks, suasana) => { await simpanStatus(sesi.token, teks, suasana); muatStatus() }}
-              hapus={async () => { await hapusStatusSaya(sesi.token); setStatusList(x => x.filter(y => !y.saya)) }}
-              buka={() => statusSaya && setLayar({ j: 'status', id: statusSaya.id, balik: layar })}
+              daftar={statusList.filter(x => x.saya)}
+              riwayat={arsip.filter(a => !statusList.some(x => x.id === a.id))}
+              hapusRiwayat={hapusArsip}
+              tambah={tambahStatus}
+              hapus={async id => { await hapusStatus(sesi.token, id); setStatusList(x => x.filter(y => y.id !== id)); hapusArsip(id) }}
+              buka={id => setLayar({ j: 'status', id, balik: layar })}
             />
           }
           kembali={() => setLayar(balik)}
@@ -729,9 +750,12 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
       <DetailStatus
         key={st.id}
         status={st} anggota={anggota} saya={sesi.id}
+        saudara={statusList.filter(x => x.anggotaId === st.anggotaId).sort((a, b) => b.dibuatPada.localeCompare(a.dibuatPada))}
+        pilih={id => setLayar({ ...layar, id })}
         muat={() => daftarKomentarStatus(sesi.token, st.id)}
         kirim={t => kirimKomentarStatus(sesi.token, st.id, t)}
         hapusKomentar={async id => { await hapusKomentarStatus(sesi.token, st.id, id) }}
+        hapusStatus={st.saya ? async () => { await hapusStatus(sesi.token, st.id); setStatusList(x => x.filter(y => y.id !== st.id)); hapusArsip(st.id) } : undefined}
         berubah={muatStatus}
         kembali={() => setLayar(layar.balik)}
       />
@@ -825,7 +849,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         ListHeaderComponent={q ? undefined : (
           <>
             <BarisPermintaan daftar={kontak.masuk} buka={r => setLayar({ j: 'orang', anggota: { id: r.id, nama: r.nama, fotoV: r.fotoV } })} />
-            <BarisStatus daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: { j: 'daftar' } })} />
+            <BarisStatus tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: { j: 'daftar' } })} />
           </>
         )}
         ListEmptyComponent={<Text style={s.kosong}>{q ? 'Tidak ada yang cocok.' : 'Belum ada obrolan. Ketuk tombol hijau di kanan bawah untuk memulai.'}</Text>}

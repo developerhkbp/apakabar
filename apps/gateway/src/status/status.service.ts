@@ -1,10 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { Pengguna } from '../auth/jwt-auth.guard'
 import { KontakService } from '../kontak/kontak.service'
 import { PrismaService } from '../prisma/prisma.service'
 
 const MASA_BERLAKU_MS = 24 * 3600_000
 const MAKS_KOMENTAR_PER_STATUS = 300
+const MAKS_STATUS_AKTIF = 10
+/** Batas status teman yang dikirim per permintaan; milik sendiri selalu lengkap. */
+const MAKS_STATUS_TEMAN = 300
+/** Status kedaluwarsa dibuang dari server setelah jeda ini; salinan milik sendiri tersimpan di HP pemiliknya. */
+const JEDA_BUANG_MS = 3600_000
 
 const pilihStatus = {
   id: true, anggotaId: true, teks: true, suasana: true, dibuatPada: true, kedaluwarsa: true,
@@ -18,8 +23,26 @@ type BarisStatus = {
 }
 
 @Injectable()
-export class StatusService {
+export class StatusService implements OnModuleInit, OnModuleDestroy {
+  private readonly log = new Logger('Status')
+  private timer?: NodeJS.Timeout
+
   constructor(private readonly prisma: PrismaService, private readonly kontak: KontakService) {}
+
+  onModuleInit() {
+    this.timer = setInterval(() => this.buang().catch((e) => this.log.error(e)), 3600_000)
+    this.timer.unref()
+    this.buang().catch(() => {})
+  }
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer)
+  }
+
+  /** Menghapus status yang sudah lewat 24 jam (komentarnya ikut terhapus lewat cascade). */
+  private async buang() {
+    const r = await this.prisma.statusHarian.deleteMany({ where: { kedaluwarsa: { lt: new Date(Date.now() - JEDA_BUANG_MS) } } })
+    if (r.count) this.log.log(`${r.count} status kedaluwarsa dibuang`)
+  }
 
   /** Syarat status terlihat oleh `saya`: milik sendiri, atau pemiliknya satu grup buatan manual (bukan grup otomatis) dengan saya. */
   private bolehLihat(saya: string, terblokir: string[]) {
@@ -53,47 +76,57 @@ export class StatusService {
       suasana: s.suasana,
       dibuatPada: s.dibuatPada.toISOString(),
       kedaluwarsa: s.kedaluwarsa.toISOString(),
-      jumlahKomentar: s._count.komentar,
+      // Komentar hanya terlihat pemilik status; orang lain tidak diberi jumlahnya.
+      jumlahKomentar: s.anggotaId === saya ? s._count.komentar : 0,
       saya: s.anggotaId === saya,
     }
   }
 
   /** Status aktif milik saya dan teman satu grup manual; milik saya paling depan, lalu yang terbaru. */
   async daftar(p: Pengguna) {
-    const rows = await this.prisma.statusHarian.findMany({
-      where: this.bolehLihat(p.id, await this.kontak.terblokirDenganSaya(p.id)),
-      select: pilihStatus,
-      orderBy: { dibuatPada: 'desc' },
-      take: 200,
-    })
-    return rows.map((r) => this.bentuk(r, p.id)).sort((a, b) => Number(b.saya) - Number(a.saya))
-  }
-
-  /** Membuat atau mengganti status saya (komentar status lama ikut hilang). */
-  async simpan(p: Pengguna, teks: string, suasana?: string) {
-    const kedaluwarsa = new Date(Date.now() + MASA_BERLAKU_MS)
-    const dibuatPada = new Date()
-    const [, s] = await this.prisma.$transaction([
-      this.prisma.statusKomentar.deleteMany({ where: { status: { anggotaId: p.id } } }),
-      this.prisma.statusHarian.upsert({
-        where: { anggotaId: p.id },
-        create: { anggotaId: p.id, teks, suasana: suasana || null, kedaluwarsa },
-        update: { teks, suasana: suasana || null, dibuatPada, kedaluwarsa },
+    const aktif = { kedaluwarsa: { gt: new Date() } }
+    const terblokir = await this.kontak.terblokirDenganSaya(p.id)
+    const [milik, teman] = await Promise.all([
+      this.prisma.statusHarian.findMany({ where: { anggotaId: p.id, ...aktif }, select: pilihStatus, orderBy: { dibuatPada: 'desc' }, take: MAKS_STATUS_AKTIF }),
+      this.prisma.statusHarian.findMany({
+        where: { ...this.bolehLihat(p.id, terblokir), anggotaId: { not: p.id, notIn: terblokir } },
         select: pilihStatus,
+        orderBy: { dibuatPada: 'desc' },
+        take: MAKS_STATUS_TEMAN,
       }),
     ])
+    return [...milik, ...teman].map((r) => this.bentuk(r, p.id))
+  }
+
+  /** Menambah satu status baru (boleh beberapa sekaligus, maksimal MAKS_STATUS_AKTIF yang masih tayang). */
+  async simpan(p: Pengguna, teks: string, suasana?: string) {
+    const aktif = await this.prisma.statusHarian.count({ where: { anggotaId: p.id, kedaluwarsa: { gt: new Date() } } })
+    if (aktif >= MAKS_STATUS_AKTIF) throw new ForbiddenException(`Maksimal ${MAKS_STATUS_AKTIF} status aktif. Hapus salah satu dulu.`)
+    const s = await this.prisma.statusHarian.create({
+      data: { anggotaId: p.id, teks, suasana: suasana || null, kedaluwarsa: new Date(Date.now() + MASA_BERLAKU_MS) },
+      select: pilihStatus,
+    })
     return this.bentuk(s, p.id)
   }
 
+  /** Menghapus semua status saya (dipakai aplikasi versi lama). */
   async hapusSaya(p: Pengguna) {
     await this.prisma.statusHarian.deleteMany({ where: { anggotaId: p.id } })
     return { ok: true }
   }
 
+  /** Menghapus satu status saya beserta komentarnya. */
+  async hapus(id: string, p: Pengguna) {
+    const r = await this.prisma.statusHarian.deleteMany({ where: { id, anggotaId: p.id } })
+    if (!r.count) throw new NotFoundException('Status tidak ditemukan')
+    return { ok: true }
+  }
+
   async komentar(id: string, p: Pengguna) {
-    await this.ambilTerlihat(id, p)
+    const s = await this.ambilTerlihat(id, p)
+    // Pemilik status melihat semua komentar; orang lain hanya melihat komentarnya sendiri.
     const rows = await this.prisma.statusKomentar.findMany({
-      where: { statusId: id },
+      where: { statusId: id, ...(s.anggotaId === p.id ? {} : { anggotaId: p.id }) },
       orderBy: { dibuatPada: 'asc' },
       take: MAKS_KOMENTAR_PER_STATUS,
       select: { id: true, anggotaId: true, teks: true, dibuatPada: true, anggota: { select: { nama: true } } },
