@@ -15,6 +15,11 @@ const MAKS_OTP_PER_JAM = parseInt(process.env.OTP_MAKS_PER_JAM ?? '5', 10)
 // Batas per alamat IP (semua nomor): mencegah satu sumber memindai nomor atau menghabiskan kuota WhatsApp.
 const MAKS_OTP_PER_IP_JAM = parseInt(process.env.OTP_MAKS_PER_IP_JAM ?? '30', 10)
 
+// Akun uji untuk peninjau Google Play: nomor dan kode tetap dari env (kosong = fitur mati). Tidak mengirim WhatsApp.
+const NOMOR_UJI = normalisasiNomor(process.env.REVIEW_NOMOR ?? '') ?? ''
+const KODE_UJI = process.env.REVIEW_KODE ?? ''
+const MAKS_PERCOBAAN_UJI_JAM = 30
+
 export const PENGIRIM_OTP = 'PENGIRIM_OTP'
 export interface PayloadToken {
   sub: string // id anggota
@@ -34,6 +39,20 @@ export class AuthService {
     private readonly peristiwa: PeristiwaService,
   ) {}
 
+  /** True bila nomor ini adalah akun uji peninjau (hanya jika REVIEW_NOMOR dan REVIEW_KODE diisi). */
+  private akunUji(nomorHp: string) {
+    return !!NOMOR_UJI && !!KODE_UJI && nomorHp === NOMOR_UJI
+  }
+
+  private async pastikanAkunUji(nomorHp: string) {
+    await this.prisma.anggota.upsert({
+      where: { nomorHp },
+      create: { nomorHp, nama: 'Akun Uji Google Play', status: 'AKTIF', peran: 'USER' },
+      update: { status: 'AKTIF', peran: 'USER' },
+      select: { id: true },
+    })
+  }
+
   private hash(nomorHp: string, kode: string) {
     const rahasia = process.env.OTP_SECRET ?? process.env.JWT_SECRET ?? ''
     return createHmac('sha256', rahasia).update(`${nomorHp}:${kode}`).digest('hex')
@@ -50,6 +69,12 @@ export class AuthService {
     const generik = { pesan: 'Kode verifikasi dikirim lewat WhatsApp.', kodeDev: undefined as string | undefined }
     const nomorHp = normalisasiNomor(nomorMentah)
     if (!nomorHp) throw new BadRequestException('Format nomor HP tidak valid')
+
+    if (this.akunUji(nomorHp)) {
+      // Akun peninjau: dipastikan ada, aktif, berperan USER. Tanpa pengiriman WhatsApp.
+      await this.pastikanAkunUji(nomorHp)
+      return generik
+    }
 
     const anggota = await this.prisma.anggota.findUnique({ where: { nomorHp }, select: { id: true, status: true } })
     if (!anggota || anggota.status === 'DITANGGUHKAN') throw new ForbiddenException('Maaf, Anda tidak terdaftar.')
@@ -88,8 +113,25 @@ export class AuthService {
     const nomorHp = normalisasiNomor(nomorMentah)
     if (!nomorHp) throw gagal
 
+    const uji = this.akunUji(nomorHp)
+    if (uji) {
+      if ((await this.redis.tambahHitung(`otp-uji:${nomorHp}`, 3600)) > MAKS_PERCOBAAN_UJI_JAM) throw gagal
+      const a = Buffer.from(kode)
+      const b = Buffer.from(KODE_UJI)
+      if (a.length !== b.length || !timingSafeEqual(a, b)) throw gagal
+      await this.pastikanAkunUji(nomorHp)
+    }
+
     const anggota = await this.prisma.anggota.findUnique({ where: { nomorHp } })
     if (!anggota || anggota.status === 'DITANGGUHKAN') throw gagal
+
+    if (uji) {
+      const perangkatUji = await this.pasangPerangkat(anggota.id, paket)
+      return {
+        anggota: { id: anggota.id, nama: anggota.nama, peran: anggota.peran, status: anggota.status },
+        ...this.terbitkanToken(anggota.id, perangkatUji.versiToken),
+      }
+    }
 
     const req = await this.prisma.otpPermintaan.findFirst({
       where: { nomorHp, terpakai: false, kedaluwarsa: { gt: new Date() } },
