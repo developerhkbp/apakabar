@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { Image, Text, View } from 'react-native'
 import Signal from '../modules/signal-protocol/src'
 import { awalNama, s } from './gaya'
-import { BASE } from './server'
+import { fotoUrlAnggota, langgananFotoUrl } from './fotoUrl'
+import { BASE, tokenSekarang } from './server'
 
 let tokenFoto = ''
 /** Token terbaru untuk mengunduh foto (alamat foto dilindungi login). */
@@ -12,12 +13,20 @@ export const setTokenFoto = (t: string) => { tokenFoto = t }
 /** Foto bulat; bila belum ada foto (atau gagal dimuat) tampil huruf awal. `v` = versi foto, ikut di alamat agar cache segar. */
 export function Avatar({ jenis, id, v, nama, ukuran = 48 }: { jenis: 'anggota' | 'grup'; id: string; v?: number; nama: string; ukuran?: number }) {
   const [galat, setGalat] = useState(false)
-  useEffect(() => setGalat(false), [v, id])
+  const [urlGalat, setUrlGalat] = useState(false)
+  const [, segarkan] = useState(0)
+  useEffect(() => { setGalat(false); setUrlGalat(false) }, [v, id])
+  useEffect(() => (jenis === 'anggota' ? langgananFotoUrl(() => segarkan(n => n + 1)) : undefined), [jenis])
   const bulat = { width: ukuran, height: ukuran, borderRadius: ukuran / 2 }
+  const urlSuperapp = jenis === 'anggota' ? fotoUrlAnggota(id) : undefined
+  if (!(v && !galat) && urlSuperapp && !urlGalat) {
+    // belum punya foto sendiri: pakai foto dari superapp, dimuat langsung dari alamatnya (tanpa token)
+    return <Image source={{ uri: urlSuperapp }} style={[bulat, { backgroundColor: '#DFE5E7' }]} onError={() => setUrlGalat(true)} />
+  }
   if (v && !galat) {
     return (
       <Image
-        source={{ uri: `${BASE}/foto/${jenis}/${id}?v=${v}`, headers: { Authorization: `Bearer ${tokenFoto}` } }}
+        source={{ uri: `${BASE}/foto/${jenis}/${id}?v=${v}`, headers: { Authorization: `Bearer ${tokenSekarang() || tokenFoto}` } }}
         style={[bulat, { backgroundColor: '#DFE5E7' }]}
         onError={() => setGalat(true)}
       />

@@ -43,7 +43,7 @@ spec:
             - { name: REDIS_SENTINEL_MASTER, value: mymaster }
             - { name: REDIS_DB, value: "1" }
           envFrom:
-            # DATABASE_URL, REDIS_URL, JWT_SECRET, OTP_SECRET, WA_TOKEN, WA_PHONE_ID, WA_TEMPLATE_OTP
+            # DATABASE_URL, REDIS_URL, JWT_SECRET, OTP_SECRET, WA_TOKEN, WA_PHONE_ID, WA_TEMPLATE_OTP, SUPERAPP_SERVICE_KEY (sama dengan APAKABAR_SERVICE_KEY di superapp), SUPERAPP_URL (opsional, default https://api.hkbp.or.id/api/v1)
             - secretRef: { name: apakabar-secret }
           volumeMounts:
             - { name: firebase, mountPath: /secrets/firebase, readOnly: true }

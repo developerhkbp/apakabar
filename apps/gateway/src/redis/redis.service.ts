@@ -115,6 +115,25 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  /** Kunci sekali-jalan antar replika (SET NX). Tanpa Redis selalu berhasil karena hanya ada satu proses. */
+  async kunciSekali(kunci: string, ttlDetik: number): Promise<boolean> {
+    if (!this.perintah) return true
+    try {
+      return (await this.perintah.set(`kunci:${kunci}`, '1', 'EX', ttlDetik, 'NX')) === 'OK'
+    } catch {
+      return false
+    }
+  }
+
+  async lepasKunci(kunci: string) {
+    if (!this.perintah) return
+    try {
+      await this.perintah.del(`kunci:${kunci}`)
+    } catch {
+      /* abaikan */
+    }
+  }
+
   /** Penghitung dengan kedaluwarsa (untuk pembatas laju). Mengembalikan hitungan setelah ditambah. */
   async tambahHitung(kunci: string, ttlDetik: number): Promise<number> {
     if (this.perintah) {

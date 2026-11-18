@@ -90,6 +90,12 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     return true
   }
 
+  /** Apakah anggota sedang tersambung (di replika ini atau replika lain). */
+  async adaOnline(anggotaId: string): Promise<boolean> {
+    if (this.online.has(anggotaId)) return true
+    return this.redis.aktif ? this.redis.adaOnline(anggotaId) : false
+  }
+
   handleConnection(ws: Koneksi, req: IncomingMessage) {
     ws.siap = this.sambut(ws, req)
     ws.siap.catch(() => undefined)

@@ -31,6 +31,10 @@ model Anggota {
   nomorHp          String        @unique // E.164 tanpa plus, mis. 62812xxxx
   nama             String
   sumberPelayanId  String? // id Pelayan di superapp (referensi saja)
+  sumberCalonId    String?       @unique // id CalonPelayan di superapp (untuk calon pelayan yang belum jadi pelayan)
+  jenisSumber      String? // PELAYAN | CALON — diisi sinkronisasi harian dari superapp
+  grupOtomatis     String[]      @default([]) // kunci grup otomatis yang berhak diikuti (dihitung sinkronisasi dari jabatan/tohonan/distrik/LPP)
+  fotoSuperapp     String? // alamat foto pelayan di superapp (hanya alamatnya; dipakai bila anggota belum punya foto sendiri)
   status           StatusAnggota @default(DIUNDANG)
   peran            PeranAnggota  @default(USER)
   dibuatPada       DateTime      @default(now())
@@ -46,6 +50,7 @@ model Anggota {
 model Grup {
   id            String        @id @default(uuid())
   nama          String
+  kunci         String?       @unique // terisi untuk grup otomatis (mis. PELAYAN, DISTRIK:<id>); keanggotaannya diatur sinkronisasi
   idDistribusi  String        @default(uuid()) // diganti saat ada anggota dikeluarkan → semua pengirim wajib membagikan kunci baru
   dibuatOleh    String
   dibuatPada    DateTime      @default(now())

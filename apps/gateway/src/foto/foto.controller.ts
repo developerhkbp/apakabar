@@ -24,8 +24,8 @@ export class FotoController {
 
   @Get('saya/versi')
   async versiSaya(@PenggunaIni() p: Pengguna) {
-    const a = await this.prisma.anggota.findUnique({ where: { id: p.id }, select: { fotoV: true } })
-    return { fotoV: a?.fotoV ?? 0 }
+    const a = await this.prisma.anggota.findUnique({ where: { id: p.id }, select: { fotoV: true, fotoSuperapp: true } })
+    return { fotoV: a?.fotoV ?? 0, fotoUrl: a?.fotoSuperapp ?? null }
   }
 
   @Get('anggota/:id')

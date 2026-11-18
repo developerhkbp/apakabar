@@ -1,9 +1,9 @@
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import {
-  adminBlokir, adminBukaBlokir, adminDaftar, adminKeluarkan, adminRingkasan, adminSetujui, adminSetujuiBanyak,
-  adminTambah, adminUbahPeran, type AnggotaAdmin, type Sesi, type StatusAnggota,
+  adminBlokir, adminBukaBlokir, adminDaftar, adminDetail, adminKeluarkan, adminRingkasan, adminSetujui, adminSetujuiBanyak,
+  adminTambah, adminUbah, adminUbahPeran, type AnggotaAdmin, type DetailAnggotaAdmin, type Sesi, type StatusAnggota,
 } from '../server'
 import { awalNama, s } from '../gaya'
 
@@ -28,6 +28,8 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
   const [dimuat, setDimuat] = useState(false) // sudah ada jawaban untuk tab/pencarian ini
   const [galat, setGalat] = useState('')
   const [formTambah, setFormTambah] = useState(false)
+  const [diubah, setDiubah] = useState<AnggotaAdmin | null>(null)
+  const [rinci, setRinci] = useState<AnggotaAdmin | null>(null)
   const permintaan = useRef(0)
 
   const muat = useCallback(async (hal = 1) => {
@@ -61,7 +63,7 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
     Alert.alert(judul, isi, [{ text: 'Batal', style: 'cancel' }, { text: teksYa, style: 'destructive', onPress: () => jalankan(fn) }])
 
   const baris = (a: AnggotaAdmin) => (
-    <View style={s.barisObrolan}>
+    <Pressable style={s.barisObrolan} onPress={() => setRinci(a)}>
       <View style={s.avatar}><Text style={s.avatarTeks}>{awalNama(a.nama)}</Text></View>
       <View style={{ flex: 1 }}>
         <Text style={s.nama}>{a.nama}</Text>
@@ -111,9 +113,26 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
             ) : null}
           </View>
         ) : null}
+        {a.peran === 'USER' || (utama && a.peran === 'ADMIN') ? (
+          <View style={s.aksiBaris}>
+            <Pressable style={s.aksi} onPress={() => { setFormTambah(false); setDiubah(a) }}>
+              <Text style={s.aksiTeks}>Ubah nama / nomor</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
-    </View>
+    </Pressable>
   )
+
+  if (rinci) {
+    return (
+      <Rinci
+        token={sesi.token} a={rinci} kembali={() => setRinci(null)}
+        bisaUbah={rinci.peran === 'USER' || (utama && rinci.peran === 'ADMIN')}
+        ubah={() => { setFormTambah(false); setDiubah(rinci); setRinci(null) }}
+      />
+    )
+  }
 
   return (
     <View style={s.root}>
@@ -122,11 +141,12 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
         <Pressable onPress={kembali} hitSlop={12}><Text style={{ color: '#fff', fontSize: 22 }}>←</Text></Pressable>
         <Text style={[s.judul, { flex: 1 }]}>Kelola anggota</Text>
         {utama ? (
-          <Pressable onPress={() => setFormTambah(x => !x)} hitSlop={12}>
+          <Pressable onPress={() => { setDiubah(null); setFormTambah(x => !x) }} hitSlop={12}>
             <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{formTambah ? 'Tutup' : '+ Tambah'}</Text>
           </Pressable>
         ) : null}
       </View>
+      {diubah ? <FormUbah key={diubah.id} token={sesi.token} a={diubah} batal={() => setDiubah(null)} selesai={() => { setDiubah(null); muat(1) }} /> : null}
       {formTambah ? <FormTambah token={sesi.token} selesai={() => { setFormTambah(false); setTab('AKTIF'); muat(1) }} /> : null}
       <View style={s.tab}>
         {TAB.map(t => (
@@ -180,6 +200,121 @@ function FormTambah({ token, selesai }: { token: string; selesai: () => void }) 
       >
         {sibuk ? <ActivityIndicator color="#fff" /> : <Text style={s.tombolTeks}>Tambahkan</Text>}
       </Pressable>
+    </View>
+  )
+}
+
+function FormUbah({ token, a, batal, selesai }: { token: string; a: AnggotaAdmin; batal: () => void; selesai: () => void }) {
+  const [nama, setNama] = useState(a.nama)
+  const [nomor, setNomor] = useState(tampilNomor(a.nomorHp))
+  const [sibuk, setSibuk] = useState(false)
+  const [galat, setGalat] = useState('')
+  return (
+    <View style={{ padding: 16, backgroundColor: '#F7F8F8' }}>
+      <Text style={{ fontWeight: '700', color: '#111B21', marginBottom: 8 }}>Ubah data anggota</Text>
+      <TextInput style={s.formKolom} value={nama} onChangeText={setNama} placeholder="Nama lengkap" />
+      <TextInput style={s.formKolom} value={nomor} onChangeText={setNomor} placeholder="Nomor HP (08xx…)" keyboardType="phone-pad" />
+      {galat ? <Text style={s.galat}>{galat}</Text> : null}
+      <Text style={[s.info, { textAlign: 'left' }]}>Anggota masuk dengan kode WhatsApp ke nomor ini. Perubahan nomor tidak mengeluarkan perangkat yang sudah masuk.</Text>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Pressable style={[s.tombolTepi, { flex: 1 }]} disabled={sibuk} onPress={batal}>
+          <Text style={s.tombolTepiTeks}>Batal</Text>
+        </Pressable>
+        <Pressable
+          style={[s.tombol, { flex: 1 }, sibuk && { opacity: 0.5 }]}
+          disabled={sibuk}
+          onPress={async () => {
+            const d: { nama?: string; nomorHp?: string } = {}
+            if (nama.trim() !== a.nama) d.nama = nama.trim()
+            if (nomor.trim() && nomor.replace(/\D/g, '') !== tampilNomor(a.nomorHp).replace(/\D/g, '')) d.nomorHp = nomor
+            if (!d.nama && !d.nomorHp) { batal(); return }
+            setSibuk(true)
+            setGalat('')
+            try { await adminUbah(token, a.id, d); selesai() } catch (e) { setGalat((e as Error).message) } finally { setSibuk(false) }
+          }}
+        >
+          {sibuk ? <ActivityIndicator color="#fff" /> : <Text style={s.tombolTeks}>Simpan</Text>}
+        </Pressable>
+      </View>
+    </View>
+  )
+}
+
+const LABEL_STATUS: Record<string, string> = { AKTIF: 'Aktif', MENUNGGU: 'Menunggu persetujuan', DIUNDANG: 'Belum masuk', DITANGGUHKAN: 'Diblokir' }
+const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+const tglPendek = (iso: string | null) => { if (!iso) return null; const d = new Date(iso); return `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}` }
+
+/** Detail satu anggota untuk admin: data ApaKabaR dicocokkan dengan jabatan, tempat bertugas, dan foto dari superapp. */
+function Rinci({ token, a, kembali, bisaUbah, ubah }: { token: string; a: AnggotaAdmin; kembali: () => void; bisaUbah: boolean; ubah: () => void }) {
+  const [d, setD] = useState<DetailAnggotaAdmin | null>(null)
+  const [galat, setGalat] = useState('')
+  const [fotoRusak, setFotoRusak] = useState(false)
+  useEffect(() => {
+    let batal = false
+    adminDetail(token, a.id).then(r => { if (!batal) setD(r) }).catch(e => { if (!batal) setGalat((e as Error).message) })
+    return () => { batal = true }
+  }, [token, a.id])
+  const sp = d?.superapp
+  const kotak = { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#E9EDEF' } as const
+  const label = { fontSize: 12, color: '#667781' } as const
+  return (
+    <View style={s.root}>
+      <StatusBar style="light" />
+      <View style={[s.header, s.barisHeader]}>
+        <Pressable onPress={kembali} hitSlop={12}><Text style={{ color: '#fff', fontSize: 22 }}>←</Text></Pressable>
+        <Text style={[s.judul, { flex: 1 }]}>Detail anggota</Text>
+        {bisaUbah ? (
+          <Pressable onPress={ubah} hitSlop={12}><Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Ubah</Text></Pressable>
+        ) : null}
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} style={{ backgroundColor: '#F0F2F5' }}>
+        <View style={{ alignItems: 'center', gap: 6 }}>
+          {sp?.fotoUrl && !fotoRusak ? (
+            <Image source={{ uri: sp.fotoUrl }} onError={() => setFotoRusak(true)} style={{ width: 128, height: 128, borderRadius: 64, backgroundColor: '#DDD' }} />
+          ) : (
+            <View style={[s.avatar, { width: 128, height: 128, borderRadius: 64 }]}><Text style={[s.avatarTeks, { fontSize: 44 }]}>{awalNama(a.nama)}</Text></View>
+          )}
+          <Text style={{ fontSize: 21, fontWeight: '700', color: '#111B21', textAlign: 'center' }}>{sp?.nama ?? a.nama}</Text>
+          {sp && sp.nama !== a.nama ? <Text style={{ color: '#667781' }}>Nama di ApaKabaR: {a.nama}</Text> : null}
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <View style={s.lencanaPeran}><Text style={s.lencanaPeranTeks}>{LABEL_STATUS[a.status] ?? a.status}</Text></View>
+            {a.peran !== 'USER' ? <View style={s.lencanaPeran}><Text style={s.lencanaPeranTeks}>{a.peran === 'ADMIN_UTAMA' ? 'Admin utama' : 'Admin'}</Text></View> : null}
+          </View>
+        </View>
+
+        <View style={kotak}>
+          <Text style={label}>Nomor HP (ApaKabaR)</Text>
+          <Text style={{ fontSize: 17, color: '#111B21', marginTop: 2 }}>{tampilNomor(a.nomorHp)}</Text>
+          {sp ? (
+            sp.nomorCocok === null ? (
+              <Text style={{ color: '#8696A0', marginTop: 6 }}>Superapp belum mencatat nomor HP pelayan ini.</Text>
+            ) : sp.nomorCocok ? (
+              <Text style={{ color: '#1B7F4B', marginTop: 6, fontWeight: '600' }}>✓ Sama dengan nomor di superapp</Text>
+            ) : (
+              <Text style={{ color: '#C62828', marginTop: 6, fontWeight: '600' }}>⚠ Berbeda dengan superapp ({sp.hp.map(tampilNomor).join(', ')}). Pastikan orangnya benar.</Text>
+            )
+          ) : null}
+          <Text style={[label, { marginTop: 10 }]}>Bergabung</Text>
+          <Text style={{ fontSize: 15, color: '#111B21' }}>{tglPendek(a.dibuatPada)}</Text>
+        </View>
+
+        <View style={kotak}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#075E54', letterSpacing: 0.6 }}>JABATAN & TEMPAT BERTUGAS (SUPERAPP)</Text>
+          {!d && !galat ? <ActivityIndicator style={{ marginTop: 14 }} /> : null}
+          {galat ? <Text style={{ color: '#C62828', marginTop: 8 }}>{galat}</Text> : null}
+          {d?.superappGalat ? <Text style={{ color: '#8696A0', marginTop: 8 }}>{d.superappGalat}</Text> : null}
+          {sp && !sp.penugasan.length ? <Text style={{ color: '#8696A0', marginTop: 8 }}>Tidak ada penugasan aktif di superapp.</Text> : null}
+          {sp?.penugasan.map((p, i) => (
+            <View key={i} style={{ marginTop: 12, paddingTop: i ? 12 : 0, borderTopWidth: i ? 1 : 0, borderTopColor: '#E9EDEF' }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111B21' }}>{p.jabatan}{p.plt ? ' (Plt.)' : ''}</Text>
+              {p.unit ? <Text style={{ fontSize: 15, color: '#111B21', marginTop: 2 }}>{p.unit}</Text> : null}
+              {p.induk ? <Text style={{ color: '#667781', marginTop: 1 }}>{p.induk}</Text> : null}
+              {p.sejak ? <Text style={{ color: '#8696A0', fontSize: 12, marginTop: 3 }}>Sejak {tglPendek(p.sejak)}</Text> : null}
+            </View>
+          ))}
+          {sp && sp.status !== 'AKTIF' ? <Text style={{ color: '#C62828', marginTop: 12 }}>Status di superapp: {sp.status}</Text> : null}
+        </View>
+      </ScrollView>
     </View>
   )
 }

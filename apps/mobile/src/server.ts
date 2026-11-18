@@ -1,4 +1,5 @@
 import { PermissionsAndroid, Platform } from 'react-native'
+import { daftarkanFotoUrl } from './fotoUrl'
 import Signal, { type BundleLawan } from '../modules/signal-protocol/src'
 import type { Lampiran } from './konten'
 
@@ -6,13 +7,15 @@ import type { Lampiran } from './konten'
 // dan mulai dengan EXPO_PUBLIC_API_URL=http://localhost:3101 (bundel memakai nilai ini saat build).
 export const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://apakabar.hkbp.or.id'
 
-export type Anggota = { id: string; nama: string; fotoV?: number }
+export type Anggota = { id: string; nama: string; fotoV?: number; fotoUrl?: string | null }
 /** `ref` = id pesan buatan pengirim (sama untuk semua penerima grup); dipakai untuk menghapus pesan. */
 export type Pesan = { id: string; dari: string; teks: string; waktu: number; saya: boolean; status?: 'terkirim' | 'dikirim' | 'gagal'; ref?: string; dihapus?: boolean
   /** Tanda terima per penerima (id anggota → waktu): sampai di perangkatnya / sudah dibaca. */
   terima?: Record<string, number>; baca?: Record<string, number>
   /** Pesan masuk yang sudah dilaporkan dibaca ke pengirim. */
-  dilapor?: boolean }
+  dilapor?: boolean
+  /** Gagal terkirim karena jaringan/koneksi; dicoba kirim ulang otomatis saat tersambung kembali. */
+  gagalJaringan?: boolean }
 export type StatusAnggota = 'DIUNDANG' | 'MENUNGGU' | 'AKTIF' | 'DITANGGUHKAN'
 export type PeranAnggota = 'USER' | 'ADMIN' | 'ADMIN_UTAMA'
 export type Sesi = { id: string; nama: string; token: string; refresh: string; status?: StatusAnggota; peran?: PeranAnggota }
@@ -40,7 +43,43 @@ export class GalatApi extends Error {
   }
 }
 
+// Sesi yang sedang dipakai. Layar menyimpan salinan token lama (props) yang kedaluwarsa setelah 1 jam, jadi
+// token terbaru selalu diambil dari sini dan token kedaluwarsa disegarkan otomatis (satu proses sekaligus).
+let sesiAktif: Sesi | null = null
+let sedangSegarkan: Promise<string> | null = null
+export const tokenSekarang = () => sesiAktif?.token ?? ''
+export const setSesiAktif = (s: Sesi | null) => { sesiAktif = s }
+
+/** Menukar refresh token dengan token akses baru; permintaan serentak berbagi satu proses. */
+function segarkanTokenAktif(tokenLama: string): Promise<string> {
+  const s = sesiAktif
+  if (!s) return Promise.reject(new GalatApi('Sesi tidak berlaku', 401))
+  if (s.token !== tokenLama) return Promise.resolve(s.token) // sudah disegarkan oleh permintaan lain
+  if (!sedangSegarkan) {
+    sedangSegarkan = (async () => {
+      const r = await apiMentah<Token>('POST', '/auth/refresh', { refreshToken: s.refresh })
+      const baru: Sesi = { ...(sesiAktif ?? s), token: r.aksesToken, refresh: r.refreshToken }
+      sesiAktif = baru
+      await simpanSesi(baru).catch(() => {})
+      return baru.token
+    })().finally(() => { sedangSegarkan = null })
+  }
+  return sedangSegarkan
+}
+
 async function api<T>(metode: string, jalur: string, badan?: unknown, token?: string): Promise<T> {
+  // Selalu pakai token terbaru walau pemanggil membawa salinan lama.
+  const pakai = token && sesiAktif && jalur !== '/auth/refresh' ? sesiAktif.token : token
+  try {
+    return await apiMentah<T>(metode, jalur, badan, pakai)
+  } catch (e) {
+    if (!(e instanceof GalatApi) || e.status !== 401 || !pakai || !sesiAktif || jalur === '/auth/refresh') throw e
+    const baru = await segarkanTokenAktif(pakai)
+    return apiMentah<T>(metode, jalur, badan, baru)
+  }
+}
+
+async function apiMentah<T>(metode: string, jalur: string, badan?: unknown, token?: string): Promise<T> {
   let res: Response
   try {
     res = await fetch(BASE + jalur, {
@@ -75,6 +114,7 @@ export async function verifikasi(nomorHp: string, kode: string): Promise<Sesi> {
     id: r.anggota.id, nama: r.anggota.nama, token: r.aksesToken, refresh: r.refreshToken,
     status: r.anggota.status, peran: r.anggota.peran,
   }
+  sesiAktif = sesi
   await simpanSesi(sesi)
   return sesi
 }
@@ -87,6 +127,7 @@ export async function segarkanStatus(sesi: Sesi): Promise<Sesi> {
   const t = await api<Token>('POST', '/auth/refresh', { refreshToken: sesi.refresh })
   const baru = await api<{ status: StatusAnggota; peran: PeranAnggota }>('GET', '/auth/saya', undefined, t.aksesToken)
   const hasil: Sesi = { ...sesi, token: t.aksesToken, refresh: t.refreshToken, status: baru.status, peran: baru.peran }
+  sesiAktif = hasil
   await simpanSesi(hasil)
   return hasil
 }
@@ -97,7 +138,9 @@ export async function muatSesi(): Promise<Sesi | null> {
   try {
     if (!Signal.ada()) return null
     const t = await Signal.baca('sesi')
-    return t ? (JSON.parse(t) as Sesi) : null
+    const s = t ? (JSON.parse(t) as Sesi) : null
+    sesiAktif = s
+    return s
   } catch {
     return null
   }
@@ -125,8 +168,8 @@ export const keluar = () => Signal.hapusSemua()
 /** Foto profil/grup (JPEG kecil dalam base64). null = hapus. Mengembalikan versi foto yang baru. */
 export const ubahFotoSaya = (t: string, data: string | null) => api<{ fotoV: number }>('PUT', '/foto/saya', { data }, t)
 export const ubahFotoGrup = (t: string, grupId: string, data: string | null) => api<{ fotoV: number }>('PUT', `/grup/${grupId}/foto`, { data }, t)
-export const versiFotoSaya = (t: string) => api<{ fotoV: number }>('GET', '/foto/saya/versi', undefined, t)
-export const daftarAnggota = (token: string) => api<Anggota[]>('GET', '/anggota', undefined, token)
+export const versiFotoSaya = (t: string, id?: string) => api<{ fotoV: number; fotoUrl?: string | null }>('GET', '/foto/saya/versi', undefined, t).then(r => { if (id) daftarkanFotoUrl([{ id, fotoUrl: r.fotoUrl }]); return r })
+export const daftarAnggota = (token: string) => api<Anggota[]>('GET', '/anggota', undefined, token).then(d => { daftarkanFotoUrl(d); return d })
 
 // --- Admin aplikasi ---
 export const adminRingkasan = (t: string) => api<Record<StatusAnggota, number>>('GET', '/admin/ringkasan', undefined, t)
@@ -143,6 +186,7 @@ export const adminBlokir = (t: string, id: string) => api('POST', `/admin/anggot
 export const adminBukaBlokir = (t: string, id: string) => api('POST', `/admin/anggota/${id}/buka-blokir`, undefined, t)
 export const adminKeluarkan = (t: string, id: string) => api('DELETE', `/admin/anggota/${id}`, undefined, t)
 export const adminUbahPeran = (t: string, id: string, peran: 'USER' | 'ADMIN') => api('PUT', `/admin/anggota/${id}/peran`, { peran }, t)
+export const adminUbah = (t: string, id: string, d: { nama?: string; nomorHp?: string }) => api<AnggotaAdmin>('PATCH', `/admin/anggota/${id}`, d, t)
 export const adminTambah = (t: string, nomorHp: string, nama: string) => api<AnggotaAdmin>('POST', '/admin/anggota', { nomorHp, nama }, t)
 
 // --- Grup ---
@@ -186,8 +230,9 @@ export class Obrolan {
   /** Menukar refresh token dengan token baru. 401 berarti perangkat ini sudah tidak sah. */
   private async segarkan() {
     try {
-      const r = await api<Token>('POST', '/auth/refresh', { refreshToken: this.sesi.refresh })
+      const r = await api<Token>('POST', '/auth/refresh', { refreshToken: sesiAktif?.refresh ?? this.sesi.refresh })
       this.sesi = { ...this.sesi, token: r.aksesToken, refresh: r.refreshToken }
+      sesiAktif = this.sesi
       await simpanSesi(this.sesi)
     } catch (e) {
       if (e instanceof GalatApi && e.status === 401) {
@@ -300,13 +345,20 @@ export class Obrolan {
     }
   }
 
+  /** Memastikan koneksi relay terbuka; bila tidak, pesan ditandai gagal (bukan hilang diam-diam). */
+  private pastikanTersambung() {
+    if (this.ws?.readyState !== 1) throw new GalatApi('Belum tersambung ke server', 0)
+  }
+
   private kirimCipher(untuk: string, c: { jenis: number; isi: string }) {
+    this.pastikanTersambung()
     const idKlien = `${Date.now()}-${++this.nomor}`
     this.ws?.send(JSON.stringify({ event: 'kirim', data: { untuk, jenis: c.jenis, isi: c.isi, idKlien } }))
     return idKlien
   }
 
   async kirim(untuk: string, teks: string): Promise<Pesan> {
+    this.pastikanTersambung()
     await this.pastikanSesi(untuk)
     const idKlien = this.kirimCipher(untuk, await Signal.enkripsi(untuk, teks))
     return { id: idKlien, dari: this.sesi.id, teks, waktu: Date.now(), saya: true, status: 'dikirim', ref: idKlien }
@@ -352,7 +404,9 @@ export class Obrolan {
   }
 
   async kirimGrup(grup: { id: string; idDistribusi: string; anggotaIds: string[] }, teks: string): Promise<Pesan> {
+    this.pastikanTersambung()
     await this.bagikanKunciGrup(grup.id, grup.idDistribusi, grup.anggotaIds)
+    this.pastikanTersambung()
     const isi = await Signal.enkripsiGrup(grup.idDistribusi, teks)
     const idKlien = `${Date.now()}-${++this.nomor}`
     this.ws?.send(JSON.stringify({ event: 'kirimGrup', data: { grupId: grup.id, isi, idKlien } }))
@@ -363,11 +417,12 @@ export class Obrolan {
   /** Menjalankan operasi berkas; bila token kedaluwarsa (401) sekali coba lagi setelah menyegarkan token. */
   private async denganToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
     try {
-      return await fn(this.sesi.token)
+      return await fn(tokenSekarang() || this.sesi.token)
     } catch (e) {
       if (!String((e as Error)?.message).includes('(401)')) throw e
-      await this.segarkan()
-      return fn(this.sesi.token)
+      const baru = await segarkanTokenAktif(tokenSekarang() || this.sesi.token)
+      this.sesi = { ...this.sesi, ...(sesiAktif ? { token: sesiAktif.token, refresh: sesiAktif.refresh } : {}) }
+      return fn(baru)
     }
   }
 
@@ -395,3 +450,19 @@ export class Obrolan {
     this.ws?.send(JSON.stringify({ event: 'hapusPesan', data: { grupId, pengirimId, idKlien: ref } }))
   }
 }
+
+export type ProfilAnggota = {
+  id: string; nama: string; nomorHp: string | null; peran: PeranAnggota; dibuatPada: string; fotoV: number
+  grupBersama: { id: string; nama: string; fotoV: number; jumlah: number; peranDiGrup: PeranGrup }[]
+}
+export const profilAnggota = (token: string, id: string) => api<ProfilAnggota>('GET', `/anggota/${id}/profil`, undefined, token)
+export const adaOnline = (token: string, id: string) => api<{ online: boolean }>('GET', `/anggota/${id}/online`, undefined, token).then(r => r.online)
+
+export type PenugasanSuperapp = { jabatan: string; jenis: string; plt: boolean; unitOrg: string; unit: string | null; induk: string | null; sejak: string | null }
+export type DetailAnggotaAdmin = {
+  anggota: AnggotaAdmin & { fotoV: number }
+  sumberPelayanId: string | null
+  superapp: { id: string; nama: string; status: string; fotoUrl: string | null; hp: string[]; penugasan: PenugasanSuperapp[]; nomorCocok: boolean | null } | null
+  superappGalat: string | null
+}
+export const adminDetail = (t: string, id: string) => api<DetailAnggotaAdmin>('GET', `/admin/anggota/${id}`, undefined, t)

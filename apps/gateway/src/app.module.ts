@@ -9,11 +9,12 @@ import { GrupModule } from './grup/grup.module'
 import { AdminModule } from './admin/admin.module'
 import { BerkasModule } from './berkas/berkas.module'
 import { FotoModule } from './foto/foto.module'
+import { SinkronModule } from './sinkron/sinkron.module'
 import { SehatController } from './sehat.controller'
 import { PeristiwaModule } from './common/peristiwa.service'
 
 @Module({
-  imports: [RedisModule, PeristiwaModule,PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule],
+  imports: [RedisModule, PeristiwaModule,PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule, SinkronModule],
   controllers: [SehatController],
 })
 export class AppModule {}

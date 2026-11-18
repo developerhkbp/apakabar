@@ -22,13 +22,15 @@ function Centang({ p, total }: { p: Pesan; total: number }) {
 }
 
 /** Percakapan 1:1 maupun grup. Untuk grup, `namaPengirim` menampilkan nama di atas gelembung masuk. */
-export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama }: {
+export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang }: {
   judul: string
   subjudul?: string
   grup?: boolean
   /** Jumlah penerima selain saya (1 untuk percakapan pribadi); menentukan kapan centang jadi ✓✓. */
   jumlahPenerima: number
   daftar: Pesan[]
+  /** Mengirim ulang pesan yang gagal (ketuk gelembung bertanda ⚠). */
+  kirimUlang?: (p: Pesan) => void
   kirim: (t: string) => Promise<void>
   /** Mengenkripsi + mengunggah berkas lalu mengirim pesan berlampiran. Melempar galat bila gagal. */
   kirimLampiran: (teks: string, berkas: Terpilih[], progres: (n: number, total: number) => void) => Promise<void>
@@ -118,6 +120,10 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
               <Pressable
                 style={[s.gelembung, item.saya ? s.keluar : s.masuk]}
                 onLongPress={tekanLama && !item.dihapus ? () => tekanLama(item) : undefined}
+                onPress={item.saya && item.status === 'gagal' && kirimUlang ? () => Alert.alert('Pesan belum terkirim', 'Kirim ulang pesan ini?', [
+                  { text: 'Batal', style: 'cancel' },
+                  { text: 'Kirim ulang', onPress: () => kirimUlang(item) },
+                ]) : undefined}
               >
                 {grup && !item.saya && namaPengirim ? <Text style={s.pengirim}>{namaPengirim(item.dari)}</Text> : null}
                 {item.dihapus ? (
@@ -140,7 +146,7 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
                 )}
                 <Text style={s.meta}>
                   {jam(item.waktu)}
-                  {item.saya ? (item.status === 'gagal' ? '  ⚠' : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
+                  {item.saya ? (item.status === 'gagal' ? '  ⚠ ketuk untuk kirim ulang' : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
                   {item.saya && item.status !== 'gagal' && (item.status === 'terkirim' || item.terima || item.baca) ? <Centang p={item} total={jumlahPenerima} /> : null}
                 </Text>
               </Pressable>

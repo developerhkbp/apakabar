@@ -3,9 +3,9 @@ import Signal from './modules/signal-protocol/src'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Alert, AppState, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import {
-  adminRingkasan, daftarAnggota, daftarGrup, detailGrup, keluar, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
-  simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
-  type Anggota, type DetailGrup, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
+  adaOnline, adminRingkasan, daftarAnggota, daftarGrup, detailGrup, keluar, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
+  profilAnggota, simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
+  GalatApi, type Anggota, type DetailGrup, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
 } from './src/server'
 import { awalNama, EMAS_TUA, jam, s, setTemaAdmin } from './src/gaya'
 import { Menunggu } from './src/layar/Menunggu'
@@ -122,6 +122,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const [belumBaca, setBelumBaca] = useState<Record<string, number>>({})
   const [layar, setLayar] = useState<Layar>({ j: 'daftar' })
   const [menu, setMenu] = useState(false)
+  const [online, setOnline] = useState<Record<string, boolean>>({})
   const [menuPesan, setMenuPesan] = useState<ItemMenu[] | null>(null)
   const [fotoSaya, setFotoSaya] = useState(0)
   const [cari, setCari] = useState('')
@@ -131,12 +132,33 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   layarRef.current = layar
   const adalahAdmin = peran !== 'USER'
   setTokenFoto(sesi.token)
-  useEffect(() => { versiFotoSaya(sesi.token).then(r => setFotoSaya(r.fotoV)).catch(() => {}) }, [sesi.token])
+  useEffect(() => { versiFotoSaya(sesi.token, sesi.id).then(r => setFotoSaya(r.fotoV)).catch(() => {}) }, [sesi.token])
   setTemaAdmin(adalahAdmin) // header emas untuk admin (dipasang sebelum layar anak dirender)
   useEffect(() => () => setTemaAdmin(false), [])
 
   const tambah = (kunci: string, p: Pesan) => setPesan(x => ({ ...x, [kunci]: [...(x[kunci] ?? []), p] }))
   const hapusLokal = (kunci: string, id: string) => setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).filter(p => p.id !== id) }))
+
+  /** Mengirim isi ke percakapan (kunci orang atau `g:<id>`). Gagal → pesan ditandai ⚠ dan bisa dikirim ulang. */
+  const kirimKe = async (kunci: string, isi: string, diam = false) => {
+    try {
+      const o = obrolan.current!
+      if (kunci.startsWith('g:')) {
+        const d: DetailGrup = await detailGrup(sesi.token, kunci.slice(2)) // daftar anggota & kunci grup terbaru
+        tambah(kunci, await o.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi))
+      } else {
+        tambah(kunci, await o.kirim(kunci, isi))
+      }
+    } catch (e) {
+      const jaringan = e instanceof GalatApi && e.status === 0
+      if (!diam) Alert.alert('Pesan belum terkirim', ((e as Error)?.message || String(e)) + ' Ketuk pesan bertanda ⚠ untuk mengirim ulang.')
+      tambah(kunci, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal', gagalJaringan: jaringan })
+    }
+  }
+  const kirimUlang = async (kunci: string, p: Pesan, diam = false) => {
+    hapusLokal(kunci, p.id)
+    await kirimKe(kunci, p.teks, diam)
+  }
   /** Menu hapus: untuk diri sendiri selalu ada; untuk semua hanya bila berwenang. */
   const menuHapus = (kunci: string, p: Pesan, untukSemua?: { keterangan: string; jalankan: () => void }) =>
     Alert.alert('Hapus pesan?', undefined, [
@@ -227,6 +249,25 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
 
   const sesiSaya = { ...sesi, peran }
 
+  // Kirim ulang otomatis pesan yang gagal karena jaringan begitu koneksi pulih.
+  useEffect(() => {
+    if (!tersambung || !dimuat) return
+    const tertunda = Object.entries(pesan).flatMap(([kunci, daftar]) => daftar.filter(p => p.saya && p.status === 'gagal' && p.gagalJaringan).map(p => [kunci, p] as const))
+    for (const [kunci, p] of tertunda) kirimUlang(kunci, p, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tersambung, dimuat])
+
+  // Status online lawan bicara di percakapan yang terbuka (diperbarui tiap 15 detik).
+  const idLawan = layar.j === 'orang' ? layar.anggota.id : layar.j === 'profil' && layar.jenis === 'anggota' && layar.anggota ? layar.anggota.id : null
+  useEffect(() => {
+    if (!idLawan || !tersambung) return
+    let batal = false
+    const cek = () => adaOnline(sesi.token, idLawan).then(v => { if (!batal) setOnline(x => ({ ...x, [idLawan]: v })) }).catch(() => {})
+    cek()
+    const t = setInterval(cek, 15000)
+    return () => { batal = true; clearInterval(t) }
+  }, [idLawan, tersambung, sesi.token])
+
   // Percakapan yang sedang terbuka: laporkan pesan masuk yang sudah terlihat sebagai "dibaca".
   const kunciTerbuka = layar.j === 'orang' ? layar.anggota.id : layar.j === 'grup' ? kunciGrup(layar.grup.id) : null
   useEffect(() => {
@@ -264,22 +305,12 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         ambil={l => obrolan.current!.ambilBerkas(l)}
         kirimLampiran={async (teks, berkas, progres) => {
           const isi = bungkusLampiran(teks, await unggahSemua(u => obrolan.current!.unggahBerkas(u), berkas, progres))
-          try {
-            tambah(lawan.id, await obrolan.current!.kirim(lawan.id, isi))
-          } catch (e) {
-            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
-            tambah(lawan.id, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal' })
-          }
+          await kirimKe(lawan.id, isi)
         }}
         tekanLama={p => bukaMenu(lawan.id, p, { j: 'infoPesan', kunci: lawan.id, id: p.id, lawan, balik: layar }, p.saya && p.ref && p.status !== 'gagal' ? () => obrolan.current?.hapusPesanPribadi(lawan.id, p.ref!) : undefined)}
-        kirim={async teks => {
-          try {
-            tambah(lawan.id, await obrolan.current!.kirim(lawan.id, await siapkanIsi(teks)))
-          } catch (e) {
-            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
-            tambah(lawan.id, { id: String(Date.now()), dari: sesi.id, teks, waktu: Date.now(), saya: true, status: 'gagal' })
-          }
-        }}
+        kirim={async teks => { await kirimKe(lawan.id, await siapkanIsi(teks)) }}
+        kirimUlang={p => kirimUlang(lawan.id, p)}
+        subjudul={online[lawan.id] ? 'online' : undefined}
       />
       {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
       </View>
@@ -304,13 +335,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         ambil={l => obrolan.current!.ambilBerkas(l)}
         kirimLampiran={async (teks, berkas, progres) => {
           const isi = bungkusLampiran(teks, await unggahSemua(u => obrolan.current!.unggahBerkas(u), berkas, progres))
-          try {
-            const d: DetailGrup = await detailGrup(sesi.token, g.id)
-            tambah(k, await obrolan.current!.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi))
-          } catch (e) {
-            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
-            tambah(k, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal' })
-          }
+          await kirimKe(k, isi)
         }}
         namaPengirim={id => namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota'}
         tekanLama={p => {
@@ -318,15 +343,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           const berwenang = (p.saya || adalahAdmin || g.peranSaya === 'ADMIN_GRUP') && !!p.ref
           bukaMenu(k, p, { j: 'infoPesan', kunci: k, id: p.id, grup: g, balik: layar }, berwenang ? () => obrolan.current?.hapusPesanGrup(g.id, p.dari, p.ref!) : undefined)
         }}
-        kirim={async teks => {
-          try {
-            const d: DetailGrup = await detailGrup(sesi.token, g.id) // daftar anggota & kunci grup terbaru
-            tambah(k, await obrolan.current!.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, await siapkanIsi(teks)))
-          } catch (e) {
-            Alert.alert('Pesan belum terkirim', (e as Error)?.message || String(e))
-            tambah(k, { id: String(Date.now()), dari: sesi.id, teks, waktu: Date.now(), saya: true, status: 'gagal' })
-          }
-        }}
+        kirim={async teks => { await kirimKe(k, await siapkanIsi(teks)) }}
+        kirimUlang={p => kirimUlang(k, p)}
       />
       {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
       </View>
@@ -397,6 +415,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         <Profil
           jenis="anggota" id={sesi.id} nama={sesi.nama} v={fotoSaya} bolehUbah lencana={adalahAdmin ? (peran === 'ADMIN_UTAMA' ? 'ADMIN UTAMA' : 'ADMIN') : undefined}
           simpanFoto={async d => setFotoSaya((await ubahFotoSaya(sesi.token, d)).fotoV)}
+          muat={() => profilAnggota(sesi.token, sesi.id)} saya
           kembali={() => setLayar(balik)}
         />
       )
@@ -418,6 +437,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
       <Profil
         jenis="anggota" id={a.id} nama={a.nama} v={anggota.find(x => x.id === a.id)?.fotoV} bolehUbah={false}
         simpanFoto={async () => {}}
+        muat={() => profilAnggota(sesi.token, a.id)} online={online[a.id]}
+        kirimPesan={() => setLayar({ j: 'orang', anggota: a })}
         kembali={() => setLayar(balik)}
       />
     )
@@ -481,7 +502,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
             <Text style={{ color: '#fff', fontSize: 22 }}>⋮{adalahAdmin && menunggu > 0 ? ' •' : ''}</Text>
           </Pressable>
         </View>
-        <Text style={s.subjudul}>{sesi.nama} · {tersambung ? 'tersambung' : 'menyambung…'}</Text>
+        <Text style={s.subjudul}>{sesi.nama} · {tersambung ? 'online' : 'menyambung…'}</Text>
       </View>
       <TextInput style={s.cari} value={cari} onChangeText={setCari} placeholder="Cari obrolan atau grup" />
       <FlatList
