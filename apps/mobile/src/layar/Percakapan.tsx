@@ -1,9 +1,10 @@
 import { StatusBar } from 'expo-status-bar'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import type { Pesan } from '../server'
-import { awalNama, jam, s } from '../gaya'
-import { buka, type Lampiran } from '../konten'
+import { awalNama, jam, labelHari, sehari, s } from '../gaya'
+import { buka, ringkas, type Lampiran } from '../konten'
 import { IsiLampiran, Penampil, pilihDokumen, pilihFotoVideo, ukuranTeks, type Terpilih } from '../lampiran'
 
 const EMOJI = (
@@ -11,6 +12,8 @@ const EMOJI = (
   '👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👏 🙌 👐 🤲 🤝 🙏 💪 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💕 💞 💓 💗 💖 💘 💝 🔥 ✨ ⭐ 🌟 💫 🎉 🎊 🎁 🏆 🎶 🎵 ' +
   '⛪ ✝️ 🕊️ 📖 🕯️ 🌿 🌹 🌷 🌻 ☀️ 🌙 🌈 ☁️ ⚡ ❄️ 🌍 🍎 🍞 🍇 ☕ 🍰 🎂'
 ).split(' ')
+
+type Baris = { t: 'hari'; id: string; label: string } | { t: 'pesan'; p: Pesan }
 
 /** ✓ terkirim ke server, ✓✓ sudah sampai ke semua penerima, ✓✓ biru sudah dibaca semua penerima. */
 function Centang({ p, total }: { p: Pesan; total: number }) {
@@ -22,7 +25,7 @@ function Centang({ p, total }: { p: Pesan; total: number }) {
 }
 
 /** Percakapan 1:1 maupun grup. Untuk grup, `namaPengirim` menampilkan nama di atas gelembung masuk. */
-export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang }: {
+export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang }: {
   judul: string
   subjudul?: string
   grup?: boolean
@@ -45,7 +48,38 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
   fotoPengirim?: (id: string) => ReactNode
   /** Menu saat gelembung ditekan lama (mis. hapus pesan). */
   tekanLama?: (p: Pesan) => void
+  /** Pesan yang sedang dibalas (ditampilkan di atas kolom ketik). */
+  balasan?: Pesan | null
+  batalBalas?: () => void
+  /** Nama pengirim untuk kutipan balasan ("Anda" bila pesan saya). */
+  namaBalas?: (id: string) => string
 }) {
+  const insets = useSafeAreaInsets()
+  const daftarRef = useRef<FlatList<Baris>>(null)
+  const [papan, setPapan] = useState(false)
+  useEffect(() => {
+    const a = Keyboard.addListener('keyboardDidShow', () => setPapan(true))
+    const b = Keyboard.addListener('keyboardDidHide', () => setPapan(false))
+    return () => { a.remove(); b.remove() }
+  }, [])
+  const [sorot, setSorot] = useState<string | null>(null)
+  // Daftar tampilan: pesan disisipi pemisah hari ("Hari ini", "Kemarin", tanggal)
+  const baris = useMemo(() => {
+    const r: Baris[] = []
+    daftar.forEach((p, i) => {
+      if (i === 0 || !sehari(daftar[i - 1].waktu, p.waktu)) r.push({ t: 'hari', id: 'h' + p.id, label: labelHari(p.waktu) })
+      r.push({ t: 'pesan', p })
+    })
+    return r
+  }, [daftar])
+  const lompat = (ref: string, dari: string) => {
+    const i = baris.findIndex(b => b.t === 'pesan' && b.p.ref === ref && b.p.dari === dari)
+    if (i < 0) { Alert.alert('Pesan asli tidak ditemukan', 'Mungkin sudah dihapus dari perangkat ini.'); return }
+    daftarRef.current?.scrollToIndex({ index: i, animated: true, viewPosition: 0.4 })
+    const id = (baris[i] as { p: Pesan }).p.id
+    setSorot(id)
+    setTimeout(() => setSorot(x => (x === id ? null : x)), 1600)
+  }
   const [teks, setTeks] = useState('')
   const [emoji, setEmoji] = useState(false)
   const [terpilih, setTerpilih] = useState<Terpilih[]>([])
@@ -83,7 +117,6 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
       setProgres(null)
     }
   }
-  const daftarRef = useRef<FlatList<Pesan>>(null)
   return (
     <KeyboardAvoidingView style={s.root} behavior="padding">
       <StatusBar style="light" />
@@ -109,16 +142,25 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
         </View>
         <FlatList
           ref={daftarRef}
-          data={daftar}
-          keyExtractor={p => p.id}
+          data={baris}
+          keyExtractor={b => (b.t === 'hari' ? b.id : b.p.id)}
           contentContainerStyle={{ padding: 8, gap: 4 }}
-          onContentSizeChange={() => daftarRef.current?.scrollToEnd({ animated: true })}
-          renderItem={({ item }) => {
+          onContentSizeChange={() => { if (!sorot) daftarRef.current?.scrollToEnd({ animated: true }) }}
+          onScrollToIndexFailed={i => setTimeout(() => daftarRef.current?.scrollToIndex({ index: Math.min(i.index, baris.length - 1), animated: true }), 250)}
+          renderItem={({ item: b }) => {
+            if (b.t === 'hari') {
+              return (
+                <View style={{ alignSelf: 'center', backgroundColor: '#FFFFFFE6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4, marginVertical: 6 }}>
+                  <Text style={{ fontSize: 12, color: '#54656f', fontWeight: '600' }}>{b.label}</Text>
+                </View>
+              )
+            }
+            const item = b.p
             const k = buka(item.teks)
             const p = k.pratinjau
             const gelembung = (
               <Pressable
-                style={[s.gelembung, item.saya ? s.keluar : s.masuk]}
+                style={[s.gelembung, item.saya ? s.keluar : s.masuk, sorot === item.id ? { backgroundColor: '#FFF3B0' } : null]}
                 onLongPress={tekanLama && !item.dihapus ? () => tekanLama(item) : undefined}
                 onPress={item.saya && item.status === 'gagal' && kirimUlang ? () => Alert.alert('Pesan belum terkirim', 'Kirim ulang pesan ini?', [
                   { text: 'Batal', style: 'cancel' },
@@ -130,6 +172,16 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
                   <Text style={s.dihapusTeks}>🚫 Pesan ini dihapus</Text>
                 ) : (
                   <>
+                    {k.diteruskan ? <Text style={{ fontSize: 11.5, fontStyle: 'italic', color: '#667781', marginBottom: 2 }}>↪ Diteruskan</Text> : null}
+                    {k.balas ? (
+                      <Pressable
+                        onPress={() => lompat(k.balas!.r, k.balas!.d)}
+                        style={{ backgroundColor: 'rgba(0,0,0,0.06)', borderLeftWidth: 4, borderLeftColor: '#128C7E', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 4, minWidth: 140 }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#128C7E' }} numberOfLines={1}>{namaBalas ? namaBalas(k.balas.d) : 'Pesan'}</Text>
+                        <Text style={{ fontSize: 13, color: '#54656f' }} numberOfLines={2}>{k.balas.c || 'Pesan'}</Text>
+                      </Pressable>
+                    ) : null}
                     {p ? (
                       <Pressable style={s.kartuTautan} onPress={() => Linking.openURL(p.url).catch(() => {})}>
                         {p.gambar ? <Image source={{ uri: p.gambar }} style={s.kartuGambar} resizeMode="cover" /> : null}
@@ -195,16 +247,34 @@ export function Percakapan({ fotoPengirim, avatar, judul, subjudul, grup, jumlah
           </Text>
         </View>
       ) : null}
-      <View style={s.bar}>
-        <Pressable onPress={menuLampiran} disabled={!!progres} hitSlop={8} style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-          <Text style={{ fontSize: 24 }}>📎</Text>
-        </Pressable>
-        <Pressable onPress={() => { Keyboard.dismiss(); setEmoji(v => !v) }} hitSlop={8} style={{ justifyContent: 'center', paddingHorizontal: 4 }}>
-          <Text style={{ fontSize: 24 }}>{emoji ? '⌨️' : '😊'}</Text>
-        </Pressable>
-        <TextInput style={s.kolom} value={teks} onChangeText={setTeks} onFocus={() => setEmoji(false)} placeholder="Ketik pesan" multiline />
-        <Pressable style={[s.kirim, progres ? { opacity: 0.5 } : null]} onPress={kirimSemua}>
-          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 18 }}>➤</Text>}
+      {balasan ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#E3E6E8' }}>
+          <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: '#128C7E' }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#128C7E' }} numberOfLines={1}>Membalas {namaBalas ? namaBalas(balasan.dari) : ''}</Text>
+            <Text style={{ fontSize: 13.5, color: '#54656f' }} numberOfLines={1}>{ringkas(balasan.teks) || 'Pesan'}</Text>
+          </View>
+          <Pressable onPress={batalBalas} hitSlop={10} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#EEF0F1', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#667781', fontSize: 14 }}>✕</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 8, paddingBottom: papan ? 8 : Math.max(insets.bottom, 8) + 2, backgroundColor: '#F4EFE8' }}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#fff', borderRadius: 26, paddingHorizontal: 6, minHeight: 52, elevation: 1 }}>
+          <Pressable onPress={() => { Keyboard.dismiss(); setEmoji(v => !v) }} hitSlop={6} style={{ width: 40, height: 52, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 22, opacity: 0.55 }}>{emoji ? '⌨️' : '☺'}</Text>
+          </Pressable>
+          <TextInput
+            style={{ flex: 1, fontSize: 16.5, color: '#111', paddingVertical: 14, paddingHorizontal: 2, minHeight: 52, maxHeight: 170, textAlignVertical: 'center' }}
+            value={teks} onChangeText={setTeks} onFocus={() => setEmoji(false)}
+            placeholder="Ketik pesan" placeholderTextColor="#8696A0" multiline
+          />
+          <Pressable onPress={menuLampiran} disabled={!!progres} hitSlop={6} style={{ width: 40, height: 52, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 21, opacity: 0.55, transform: [{ rotate: '-45deg' }] }}>📎</Text>
+          </Pressable>
+        </View>
+        <Pressable style={[{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#128C7E', alignItems: 'center', justifyContent: 'center', elevation: 2 }, progres ? { opacity: 0.5 } : null]} onPress={kirimSemua}>
+          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 20, marginLeft: 2 }}>➤</Text>}
         </Pressable>
       </View>
       {dibuka ? <Penampil l={dibuka} ambil={ambil} tutup={() => setDibuka(null)} /> : null}

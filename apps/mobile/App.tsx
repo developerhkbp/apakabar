@@ -2,20 +2,22 @@ import { StatusBar } from 'expo-status-bar'
 import Signal from './modules/signal-protocol/src'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Alert, AppState, FlatList, Pressable, Text, TextInput, View } from 'react-native'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   adaOnline, adminRingkasan, daftarAnggota, daftarGrup, detailGrup, keluar, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
   profilAnggota, simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
   GalatApi, type Anggota, type DetailGrup, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
 } from './src/server'
-import { awalNama, EMAS_TUA, jam, s, setTemaAdmin } from './src/gaya'
+import { awalNama, EMAS_TUA, s, setTemaAdmin, waktuDaftar } from './src/gaya'
 import { Menunggu } from './src/layar/Menunggu'
 import { Admin } from './src/layar/Admin'
 import { BuatGrup, InfoGrup } from './src/layar/Grup'
-import { buka, bungkus, bungkusLampiran, ringkas } from './src/konten'
+import { buka, bungkus, bungkusLampiran, cuplikanBalas, denganBalasan, ringkas, untukDiteruskan } from './src/konten'
 import { unggahSemua } from './src/lampiran'
 import { Galeri } from './src/layar/Galeri'
 import { ambilPratinjau, cariTautan } from './src/pratinjau'
 import { Percakapan } from './src/layar/Percakapan'
+import { Teruskan } from './src/layar/Teruskan'
 import { Avatar, setTokenFoto } from './src/avatar'
 import { Profil } from './src/layar/Profil'
 import { Kontak } from './src/layar/Kontak'
@@ -26,6 +28,14 @@ import { Pengaturan } from './src/layar/Pengaturan'
 import { Logo, Wordmark } from './src/logo'
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppInti />
+    </SafeAreaProvider>
+  )
+}
+
+function AppInti() {
   const [sesi, setSesi] = useState<Sesi | null>(null)
   const [memuat, setMemuat] = useState(true)
   const [perkenalan, setPerkenalan] = useState(false)
@@ -100,6 +110,7 @@ type Layar =
   | { j: 'galeri'; grup: RingkasGrup }
   | { j: 'kontak' }
   | { j: 'profil'; jenis: 'saya' | 'anggota' | 'grup'; anggota?: Anggota; grup?: RingkasGrup; balik: Layar }
+  | { j: 'teruskan'; isi: string; kunciAsal: string; balik: Layar }
   | { j: 'infoPesan'; kunci: string; id: string; grup?: RingkasGrup; lawan?: Anggota; balik: Layar }
   | { j: 'buatGrup' }
   | { j: 'admin' }
@@ -125,6 +136,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const [online, setOnline] = useState<Record<string, boolean>>({})
   const [menuPesan, setMenuPesan] = useState<ItemMenu[] | null>(null)
   const [fotoSaya, setFotoSaya] = useState(0)
+  const insets = useSafeAreaInsets()
+  /** Pesan yang sedang dibalas di percakapan `kunci`. */
+  const [balasan, setBalasan] = useState<{ kunci: string; p: Pesan } | null>(null)
   const [cari, setCari] = useState('')
   const [tersambung, setTersambung] = useState(false)
   const obrolan = useRef<Obrolan | null>(null)
@@ -154,6 +168,13 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
       if (!diam) Alert.alert('Pesan belum terkirim', ((e as Error)?.message || String(e)) + ' Ketuk pesan bertanda ⚠ untuk mengirim ulang.')
       tambah(kunci, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal', gagalJaringan: jaringan })
     }
+  }
+  /** Bila ada pesan yang sedang dibalas di percakapan ini, sisipkan kutipannya lalu tutup bilah balasan. */
+  const denganBalas = (kunci: string, isi: string) => {
+    if (!balasan || balasan.kunci !== kunci || !balasan.p.ref) return isi
+    const hasil = denganBalasan(isi, { r: balasan.p.ref, d: balasan.p.dari, c: cuplikanBalas(balasan.p.teks) })
+    setBalasan(null)
+    return hasil
   }
   const kirimUlang = async (kunci: string, p: Pesan, diam = false) => {
     hapusLokal(kunci, p.id)
@@ -284,6 +305,10 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   /** Menu tekan-lama: Info pesan (pesan sendiri), hapus untuk saya, hapus untuk semua bila berwenang. */
   const bukaMenu = (kunci: string, p: Pesan, info: Layar, untukSemua?: () => void) => {
     const item: ItemMenu[] = []
+    if (!p.dihapus && p.status !== 'gagal') {
+      if (p.ref) item.push({ label: 'Balas', aksi: () => setBalasan({ kunci, p }) })
+      item.push({ label: 'Teruskan', aksi: () => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }) })
+    }
     if (p.saya && p.status !== 'gagal') item.push({ label: 'Info pesan', aksi: () => setLayar(info) })
     item.push({ label: 'Hapus untuk saya', aksi: () => hapusLokal(kunci, p.id) })
     if (untukSemua) item.push({ label: 'Hapus untuk semua', bahaya: true, aksi: untukSemua })
@@ -305,12 +330,15 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         ambil={l => obrolan.current!.ambilBerkas(l)}
         kirimLampiran={async (teks, berkas, progres) => {
           const isi = bungkusLampiran(teks, await unggahSemua(u => obrolan.current!.unggahBerkas(u), berkas, progres))
-          await kirimKe(lawan.id, isi)
+          await kirimKe(lawan.id, denganBalas(lawan.id, isi))
         }}
         tekanLama={p => bukaMenu(lawan.id, p, { j: 'infoPesan', kunci: lawan.id, id: p.id, lawan, balik: layar }, p.saya && p.ref && p.status !== 'gagal' ? () => obrolan.current?.hapusPesanPribadi(lawan.id, p.ref!) : undefined)}
-        kirim={async teks => { await kirimKe(lawan.id, await siapkanIsi(teks)) }}
+        kirim={async teks => { await kirimKe(lawan.id, denganBalas(lawan.id, await siapkanIsi(teks))) }}
         kirimUlang={p => kirimUlang(lawan.id, p)}
         subjudul={online[lawan.id] ? 'online' : undefined}
+        balasan={balasan?.kunci === lawan.id ? balasan.p : null}
+        batalBalas={() => setBalasan(null)}
+        namaBalas={id => (id === sesi.id ? 'Anda' : lawan.nama)}
       />
       {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
       </View>
@@ -335,7 +363,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         ambil={l => obrolan.current!.ambilBerkas(l)}
         kirimLampiran={async (teks, berkas, progres) => {
           const isi = bungkusLampiran(teks, await unggahSemua(u => obrolan.current!.unggahBerkas(u), berkas, progres))
-          await kirimKe(k, isi)
+          await kirimKe(k, denganBalas(k, isi))
         }}
         namaPengirim={id => namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota'}
         tekanLama={p => {
@@ -343,11 +371,32 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           const berwenang = (p.saya || adalahAdmin || g.peranSaya === 'ADMIN_GRUP') && !!p.ref
           bukaMenu(k, p, { j: 'infoPesan', kunci: k, id: p.id, grup: g, balik: layar }, berwenang ? () => obrolan.current?.hapusPesanGrup(g.id, p.dari, p.ref!) : undefined)
         }}
-        kirim={async teks => { await kirimKe(k, await siapkanIsi(teks)) }}
+        kirim={async teks => { await kirimKe(k, denganBalas(k, await siapkanIsi(teks))) }}
         kirimUlang={p => kirimUlang(k, p)}
+        balasan={balasan?.kunci === k ? balasan.p : null}
+        batalBalas={() => setBalasan(null)}
+        namaBalas={id => (id === sesi.id ? 'Anda' : namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota')}
       />
       {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
       </View>
+    )
+  }
+
+  if (layar.j === 'teruskan') {
+    const t = layar
+    return (
+      <Teruskan
+        anggota={anggota}
+        grup={grup}
+        isi={t.isi}
+        kunciAsal={t.kunciAsal}
+        kembali={() => setLayar(t.balik)}
+        kirim={async tujuan => {
+          const isi = untukDiteruskan(t.isi)
+          for (const kunci of tujuan) await kirimKe(kunci, isi, true)
+          setLayar(t.balik)
+        }}
+      />
     )
   }
 
@@ -470,16 +519,23 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     const terakhir = (pesan[kunci] ?? []).slice(-1)[0]
     const n = belumBaca[kunci] ?? 0
     return (
-      <Pressable style={s.barisObrolan} onPress={() => { setBelumBaca(b => ({ ...b, [kunci]: 0 })); buka() }}>
+      <Pressable
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: pressed ? '#F1F4F3' : '#fff', borderRadius: 18, marginHorizontal: 12, marginVertical: 4, paddingHorizontal: 14, paddingVertical: 12, elevation: 1 })}
+        onPress={() => { setBelumBaca(b => ({ ...b, [kunci]: 0 })); buka() }}
+      >
         {avatar}
         <View style={{ flex: 1 }}>
-          <Text style={s.nama} numberOfLines={1}>{judul}</Text>
-          <Text style={[s.cuplikan, n > 0 && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>
-            {n > 0 ? (n > 1 ? `${n} pesan baru` : 'Pesan baru') : terakhir ? (terakhir.dihapus ? 'Pesan ini dihapus' : ringkas(terakhir.teks)) : 'Ketuk untuk mulai mengobrol'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[s.nama, { flex: 1 }]} numberOfLines={1}>{judul}</Text>
+            {terakhir ? <Text style={{ fontSize: 12, color: n > 0 ? '#128C7E' : '#8696A0', fontWeight: n > 0 ? '700' : '400' }}>{waktuDaftar(terakhir.waktu)}</Text> : null}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 }}>
+            <Text style={[s.cuplikan, { flex: 1, marginTop: 0 }, n > 0 && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>
+              {n > 0 ? (n > 1 ? `${n} pesan baru` : 'Pesan baru') : terakhir ? (terakhir.dihapus ? 'Pesan ini dihapus' : ringkas(terakhir.teks)) : 'Ketuk untuk mulai mengobrol'}
+            </Text>
+            {n > 0 ? <View style={s.lencana}><Text style={s.lencanaTeks}>{n}</Text></View> : null}
+          </View>
         </View>
-        {terakhir ? <Text style={s.jamKecil}>{jam(terakhir.waktu)}</Text> : null}
-        {n > 0 ? <View style={s.lencana}><Text style={s.lencanaTeks}>{n}</Text></View> : null}
       </Pressable>
     )
   }
@@ -487,7 +543,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   return (
     <View style={s.root}>
       <StatusBar style="light" />
-      <View style={s.header}>
+      <View style={[s.header, { paddingBottom: 18, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Logo ukuran={34} />
@@ -504,8 +560,13 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         </View>
         <Text style={s.subjudul}>{sesi.nama} · {tersambung ? 'online' : 'menyambung…'}</Text>
       </View>
-      <TextInput style={s.cari} value={cari} onChangeText={setCari} placeholder="Cari obrolan atau grup" />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 26, marginHorizontal: 14, marginTop: -2, marginBottom: 8, paddingHorizontal: 16, elevation: 3, transform: [{ translateY: -4 }] }}>
+        <Text style={{ fontSize: 16, opacity: 0.45 }}>🔍</Text>
+        <TextInput style={{ flex: 1, fontSize: 15.5, paddingVertical: 12, color: '#111' }} value={cari} onChangeText={setCari} placeholder="Cari obrolan atau grup" placeholderTextColor="#8696A0" />
+      </View>
       <FlatList
+        style={{ backgroundColor: '#F4F6F5' }}
+        contentContainerStyle={{ paddingTop: 4, paddingBottom: 100 + insets.bottom }}
         data={data}
         keyExtractor={(b, i) => (b.t === 'seksi' ? `s${b.label}` : b.t === 'grup' ? `g${b.g.id}` : `a${b.a.id}`) + i}
         keyboardShouldPersistTaps="handled"
@@ -521,7 +582,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
       <Pressable
         onPress={() => setLayar({ j: 'kontak' })}
         accessibilityLabel="Obrolan baru"
-        style={{ position: 'absolute', right: 18, bottom: 22, width: 60, height: 60, borderRadius: 18, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', elevation: 5 }}
+        style={{ position: 'absolute', right: 18, bottom: 22 + insets.bottom, width: 60, height: 60, borderRadius: 18, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', elevation: 5 }}
       >
         {/* ikon gelembung obrolan dengan tanda + (digambar dengan View, tanpa emoji) */}
         <View style={{ width: 28, height: 24, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>

@@ -10,6 +10,32 @@ export const ABU = '#667781'
 
 export const jam = (t: number) => new Date(t).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
 
+const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+const HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+const awalHari = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime() }
+const selisihHari = (t: number) => Math.round((awalHari(Date.now()) - awalHari(t)) / 86400000)
+
+/** Pemisah hari di dalam percakapan: Hari ini, Kemarin, nama hari (7 hari terakhir), atau tanggal. */
+export const labelHari = (t: number) => {
+  const n = selisihHari(t)
+  if (n <= 0) return 'Hari ini'
+  if (n === 1) return 'Kemarin'
+  const d = new Date(t)
+  if (n < 7) return HARI[d.getDay()]
+  return `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`
+}
+export const sehari = (a: number, b: number) => awalHari(a) === awalHari(b)
+
+/** Waktu di daftar obrolan: jam bila hari ini, selain itu Kemarin / nama hari / tanggal. */
+export const waktuDaftar = (t: number) => {
+  const n = selisihHari(t)
+  if (n <= 0) return jam(t)
+  if (n === 1) return 'Kemarin'
+  const d = new Date(t)
+  if (n < 7) return HARI[d.getDay()]
+  return `${d.getDate()}/${d.getMonth() + 1}/${String(d.getFullYear()).slice(2)}`
+}
+
 /** Huruf awal untuk avatar; gelar di depan nama dilewati. */
 export const awalNama = (nama: string) => nama.replace(/^(Pdt\.|St\.|Gr\.|Pdt|St|Gr|Dr\.|Ds\.)\s*/i, '').charAt(0).toUpperCase() || '?'
 
