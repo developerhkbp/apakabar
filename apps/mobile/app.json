@@ -2,7 +2,7 @@
   "expo": {
     "name": "ApaKabaR",
     "slug": "apakabar",
-    "version": "1.0.4",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,16 +12,22 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#06453D",
+        "backgroundColor": "#083B6B",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "id.or.hkbp.apakabar",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -30,13 +36,16 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#075E54"
+      "backgroundColor": "#0B4F8A"
     },
     "plugins": [
       "./plugins/with-desugaring",
       "./plugins/with-abi",
       "./plugins/with-keep-signal",
       "./plugins/with-secure-screen",
+      "./plugins/with-share-target",
+      "./plugins/with-suara-notifikasi",
+      ["expo-audio", { "microphonePermission": "ApaKabaR memakai mikrofon untuk merekam pesan suara yang Anda kirim.", "enableBackgroundPlayback": false, "enableBackgroundRecording": false }],
       "expo-video",
       "expo-sharing"
     ],

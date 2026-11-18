@@ -1,9 +1,9 @@
 import { StyleSheet } from 'react-native'
 
-export const HIJAU_TUA = '#075E54'
-export const HIJAU = '#25D366'
-export const GELEMBUNG_KELUAR = '#D9FDD3'
-export const LATAR_OBROLAN = '#EFE7DD'
+export const HIJAU_TUA = '#0B4F8A'
+export const HIJAU = '#42A5F5'
+export const GELEMBUNG_KELUAR = '#D6EAFF'
+export const LATAR_OBROLAN = '#E6EDF5'
 export const EMAS_TUA = '#A67C00'
 export const MERAH = '#E53935'
 export const ABU = '#667781'
@@ -44,7 +44,7 @@ export const s = StyleSheet.create({
   header: { backgroundColor: HIJAU_TUA, paddingTop: 48, paddingBottom: 14, paddingHorizontal: 16 },
   barisHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   judul: { color: '#fff', fontSize: 20, fontWeight: '600' },
-  subjudul: { color: '#cfe9e5', fontSize: 12, marginTop: 2 },
+  subjudul: { color: '#CFE3F7', fontSize: 12, marginTop: 2 },
   masukIsi: { flex: 1, padding: 28, paddingTop: 96, gap: 14 },
   masukJudul: { fontSize: 20, fontWeight: '600', color: HIJAU_TUA, textAlign: 'center' },
   masukUrai: { fontSize: 14, color: ABU, textAlign: 'center', lineHeight: 20 },
@@ -58,7 +58,7 @@ export const s = StyleSheet.create({
   kosong: { textAlign: 'center', color: ABU, padding: 32 },
   barisObrolan: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#e4e6e7' },
   avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#DFE5E7', alignItems: 'center', justifyContent: 'center' },
-  avatarGrup: { backgroundColor: '#C8E6C9' },
+  avatarGrup: { backgroundColor: '#BBDEFB' },
   avatarTeks: { fontSize: 18, fontWeight: '600', color: HIJAU_TUA },
   nama: { fontSize: 16, fontWeight: '600', color: '#111' },
   cuplikan: { fontSize: 14, color: ABU, marginTop: 2 },
@@ -91,7 +91,7 @@ export const s = StyleSheet.create({
   aksiBahayaTeks: { color: MERAH },
   aksiPenuh: { backgroundColor: HIJAU },
   aksiPenuhTeks: { color: '#fff' },
-  lencanaPeran: { alignSelf: 'flex-start', backgroundColor: '#E1F5E9', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, marginTop: 3 },
+  lencanaPeran: { alignSelf: 'flex-start', backgroundColor: '#E3F0FD', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1, marginTop: 3 },
   lencanaPeranTeks: { fontSize: 11, color: HIJAU_TUA, fontWeight: '700' },
   formKolom: { borderBottomWidth: 1, borderColor: '#cfd4d6', fontSize: 16, paddingVertical: 6, color: '#111', marginBottom: 10 },
   centang: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#b0b8bc', alignItems: 'center', justifyContent: 'center' },
@@ -115,5 +115,5 @@ export const s = StyleSheet.create({
 export function setTemaAdmin(admin: boolean) {
   const b = s as { header: object; subjudul: object }
   b.header = { ...s.header, backgroundColor: admin ? EMAS_TUA : HIJAU_TUA }
-  b.subjudul = { ...s.subjudul, color: admin ? '#FFF1C7' : '#cfe9e5' }
+  b.subjudul = { ...s.subjudul, color: admin ? '#FFF1C7' : '#CFE3F7' }
 }

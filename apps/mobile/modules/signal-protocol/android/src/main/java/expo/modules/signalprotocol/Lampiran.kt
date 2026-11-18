@@ -91,7 +91,7 @@ object Lampiran {
     if (!masuk.exists() || masuk.length() == 0L) throw IllegalStateException("Berkas tidak ditemukan atau kosong")
     val kunci = ByteArray(32).also { acak.nextBytes(it) }
     val awalan = ByteArray(8).also { acak.nextBytes(it) }
-    val sementara = File.createTempFile("up", ".enc", cache)
+    val sementara = File.createTempFile("unggah", ".enc", cache)
     try {
       enkripsi(masuk, sementara, kunci, awalan)
       val k = URL(url).openConnection() as HttpURLConnection
@@ -121,7 +121,7 @@ object Lampiran {
   fun unduh(url: String, token: String, kunciB64: String, ivB64: String, tujuan: File, cache: File): String {
     if (tujuan.exists() && tujuan.length() > 0) return tujuan.absolutePath
     tujuan.parentFile?.mkdirs()
-    val sementara = File.createTempFile("down", ".enc", cache)
+    val sementara = File.createTempFile("unduh", ".enc", cache)
     val hasil = File(tujuan.absolutePath + ".tmp")
     try {
       val k = URL(url).openConnection() as HttpURLConnection

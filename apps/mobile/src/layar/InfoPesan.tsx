@@ -55,7 +55,7 @@ export function InfoPesan({ token, p, grupId, lawan, saya, kembali }: {
         <Text style={s.judul}>Info pesan</Text>
       </View>
       <ScrollView>
-        <View style={{ backgroundColor: '#EFE7DD', padding: 16 }}>
+        <View style={{ backgroundColor: '#E6EDF5', padding: 16 }}>
           <View style={[s.gelembung, s.keluar, { alignSelf: 'flex-end', maxWidth: '85%' }]}>
             <Text style={s.isi} numberOfLines={4}>{ringkas(p.teks) || 'Lampiran'}</Text>
             <Text style={s.meta}>{jam(p.waktu)}</Text>

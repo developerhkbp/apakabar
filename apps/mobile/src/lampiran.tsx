@@ -6,14 +6,15 @@ import { VideoView, useVideoPlayer } from 'expo-video'
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import Signal from '../modules/signal-protocol/src'
-import { adalahFoto, adalahVideo, type Lampiran } from './konten'
+import { adalahAudio, adalahFoto, adalahVideo, type Lampiran } from './konten'
+import { PemutarSuara } from './suara'
 
 export const MAKS_BERKAS_PER_PESAN = 10
 const MAKS_BYTE_BIASA = 25 * 1024 * 1024
 const MAKS_BYTE_VIDEO = 64 * 1024 * 1024
 
 /** Berkas yang dipilih pengguna dan belum diunggah. */
-export type Terpilih = { uri: string; nama: string; mime: string; ukuran: number }
+export type Terpilih = { uri: string; nama: string; mime: string; ukuran: number; durasi?: number }
 
 export const ukuranTeks = (b: number) =>
   b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`
@@ -21,7 +22,7 @@ export const ukuranTeks = (b: number) =>
 const batas = (mime: string) => (mime.startsWith('video/') ? MAKS_BYTE_VIDEO : MAKS_BYTE_BIASA)
 
 /** Memeriksa berkas pilihan; mengembalikan yang lolos dan daftar alasan penolakan. */
-function saring(berkas: Terpilih[], sudah: number): { lolos: Terpilih[]; ditolak: string[] } {
+export function saring(berkas: Terpilih[], sudah: number): { lolos: Terpilih[]; ditolak: string[] } {
   const lolos: Terpilih[] = []
   const ditolak: string[] = []
   for (const b of berkas) {
@@ -75,7 +76,7 @@ export async function unggahSemua(
     const media = b.mime.startsWith('image/') || b.mime.startsWith('video/')
     const th = media ? await Signal.thumbnail(b.uri, b.mime.startsWith('video/'), 200).catch(() => null) : null
     const u = await unggah(b.uri)
-    hasil.push({ id: u.id, k: u.kunci, iv: u.iv, n: b.nama, m: b.mime, u: b.ukuran, ...(th ? { th } : {}) })
+    hasil.push({ id: u.id, k: u.kunci, iv: u.iv, n: b.nama, m: b.mime, u: b.ukuran, ...(th ? { th } : {}), ...(b.durasi ? { d: b.durasi } : {}) })
   }
   return hasil
 }
@@ -101,9 +102,10 @@ export function PetakMedia({ l, ukuran, onPress, onLongPress }: { l: Lampiran; u
 }
 
 /** Isi lampiran di dalam gelembung: grid thumbnail untuk foto/video, baris untuk dokumen. */
-export function IsiLampiran({ daftar, buka, tekanLama }: { daftar: Lampiran[]; buka: (l: Lampiran) => void; tekanLama?: () => void }) {
+export function IsiLampiran({ daftar, buka, tekanLama, ambil }: { daftar: Lampiran[]; buka: (l: Lampiran) => void; tekanLama?: () => void; ambil?: (l: Lampiran) => Promise<string> }) {
   const media = daftar.filter(l => adalahFoto(l) || adalahVideo(l))
-  const dokumen = daftar.filter(l => !(adalahFoto(l) || adalahVideo(l)))
+  const suara = ambil ? daftar.filter(adalahAudio) : []
+  const dokumen = daftar.filter(l => !(adalahFoto(l) || adalahVideo(l)) && !suara.includes(l))
   const sisi = media.length === 1 ? 230 : 112
   return (
     <View style={{ gap: 4 }}>
@@ -112,6 +114,7 @@ export function IsiLampiran({ daftar, buka, tekanLama }: { daftar: Lampiran[]; b
           {media.map(l => <PetakMedia key={l.id} l={l} ukuran={sisi} onPress={() => buka(l)} onLongPress={tekanLama} />)}
         </View>
       ) : null}
+      {suara.map(l => <PemutarSuara key={l.id} l={l} ambil={ambil!} tekanLama={tekanLama} />)}
       {dokumen.map(l => (
         <Pressable key={l.id} onPress={() => buka(l)} onLongPress={tekanLama} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#0000000D', borderRadius: 8, padding: 10, width: 230 }}>
           <Text style={{ fontSize: 26 }}>📄</Text>
@@ -167,7 +170,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
         {galat ? (
           <View style={{ alignItems: 'center', padding: 24, gap: 14 }}>
             <Text style={{ color: '#fff', textAlign: 'center' }}>{galat}</Text>
-            <Pressable onPress={() => setUlang(x => x + 1)} style={{ backgroundColor: '#128C7E', borderRadius: 20, paddingHorizontal: 22, paddingVertical: 10 }}>
+            <Pressable onPress={() => setUlang(x => x + 1)} style={{ backgroundColor: '#1976D2', borderRadius: 20, paddingHorizontal: 22, paddingVertical: 10 }}>
               <Text style={{ color: '#fff', fontWeight: '600' }}>Coba lagi</Text>
             </Pressable>
           </View>

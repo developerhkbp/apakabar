@@ -4,6 +4,7 @@
   "main": "index.tsx",
   "dependencies": {
     "expo": "~58.0.25",
+    "expo-audio": "~58.0.12",
     "expo-document-picker": "~58.0.5",
     "expo-image-picker": "~58.0.10",
     "expo-sharing": "~58.0.23",

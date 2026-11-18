@@ -4,6 +4,8 @@ import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets'
 import { WebSocket } from 'ws'
 import { AuthService } from '../auth/auth.service'
+import { PeristiwaService } from '../common/peristiwa.service'
+import { KontakService } from '../kontak/kontak.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { PushService } from '../push/push.service'
 import { RedisService } from '../redis/redis.service'
@@ -48,9 +50,13 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     private readonly prisma: PrismaService,
     private readonly push: PushService,
     private readonly redis: RedisService,
+    private readonly kontak: KontakService,
+    private readonly peristiwa: PeristiwaService,
   ) {}
 
   onModuleInit() {
+    // modul lain (mis. izin obrolan) mengabari anggota yang sedang online lewat peristiwa internal
+    this.peristiwa.on('beritahu', (ids: string[], data: unknown) => this.beritahu(ids, data))
     if (this.redis.aktif) {
       // Replika lain meminta kita mengantar pesan / menutup koneksi anggota yang tersambung di sini.
       this.redis.langgan(KANAL, (m) => this.dariReplikaLain(m as PesanAntarReplika)).catch((e) => this.log.error(`Gagal berlangganan Redis: ${e.message}`))
@@ -145,7 +151,7 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   }
 
   @SubscribeMessage('kirim')
-  async kirim(ws: Koneksi, d: { untuk?: string; jenis?: number; isi?: string; idKlien?: string }) {
+  async kirim(ws: Koneksi, d: { untuk?: string; jenis?: number; isi?: string; idKlien?: string; kunciGrup?: boolean }) {
     await ws.siap?.catch(() => undefined)
     if (!ws.anggotaId) return
     const sekarang = Date.now()
@@ -160,6 +166,11 @@ export class PesanGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       select: { id: true },
     })
     if (!penerima) return this.kirimKe(ws, { t: 'galat', pesan: 'Penerima tidak ditemukan' })
+
+    // Orang yang belum pernah bercakap harus meminta izin dulu; pesan ke/dari orang yang diblokir dibuang diam-diam.
+    const izin = await this.kontak.boleh(ws.anggotaId, penerima.id, d.kunciGrup === true)
+    if (izin === 'diam') return this.kirimKe(ws, { t: 'terkirim', idKlien: d.idKlien })
+    if (izin === 'izin') return this.kirimKe(ws, { t: 'galat', kode: 'IZIN', untuk: penerima.id, idKlien: d.idKlien, pesan: 'Minta izin dulu sebelum mengirim pesan' })
 
     let id: string
     let dibuat: Date

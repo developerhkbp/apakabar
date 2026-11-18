@@ -24,7 +24,7 @@ const LABEL_PERAN: Record<PeranAnggota, string | null> = { USER: null, ADMIN: 'A
 function Baris({ ikon, judul, nilai, tekan }: { ikon: string; judul: string; nilai: string; tekan?: () => void }) {
   return (
     <Pressable disabled={!tekan} onPress={tekan} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 }}>
-      <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#E7F5EF', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#E6F0FB', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontSize: 17 }}>{ikon}</Text>
       </View>
       <View style={{ flex: 1 }}>
@@ -50,7 +50,9 @@ function Kartu({ judul, children }: { judul?: string; children: React.ReactNode 
  * (profil sendiri; atau grup oleh admin grup / admin aplikasi). Foto diperkecil di perangkat sebelum diunggah.
  * Untuk anggota, `muat` mengambil data lengkap (nomor HP, tanggal bergabung, grup bersama) dari server.
  */
-export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpanFoto, kembali, muat, kirimPesan, saya, online }: {
+export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpanFoto, kembali, muat, kirimPesan, saya, online, tambahan }: {
+  /** Bagian tambahan di bawah aksi cepat (mis. kartu status). */
+  tambahan?: React.ReactNode
   jenis: 'anggota' | 'grup'
   id: string
   nama: string
@@ -92,7 +94,7 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
   }
 
   const labelPeran = lencana ?? (data ? LABEL_PERAN[data.peran] : null)
-  const gelap = '#0B2B26'
+  const gelap = '#0A2540'
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F0F2F5' }}>
@@ -147,6 +149,8 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
               ) : null}
             </View>
           ) : null}
+
+          {tambahan}
 
           {/* Data anggota */}
           {muat ? (

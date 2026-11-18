@@ -75,7 +75,7 @@ export function Teruskan({ anggota, grup, isi, kunciAsal, kirim, kembali }: {
       />
       {pilih.length ? (
         <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: insets.bottom + 10, backgroundColor: '#fff', borderTopWidth: 0.5, borderTopColor: '#E3E6E8' }}>
-          <Pressable onPress={kirimSekarang} style={{ backgroundColor: '#128C7E', borderRadius: 28, paddingVertical: 14, alignItems: 'center', opacity: mengirim ? 0.6 : 1 }}>
+          <Pressable onPress={kirimSekarang} style={{ backgroundColor: '#1976D2', borderRadius: 28, paddingVertical: 14, alignItems: 'center', opacity: mengirim ? 0.6 : 1 }}>
             {mengirim ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Kirim ke {pilih.length} tujuan</Text>}
           </Pressable>
         </View>

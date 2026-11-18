@@ -27,11 +27,11 @@ export function Onboarding({ selesai }: { selesai: () => void }) {
       </View>
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
         {HALAMAN.map((_, n) => (
-          <View key={n} style={{ width: n === i ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: n === i ? '#075E54' : '#D1D7DB' }} />
+          <View key={n} style={{ width: n === i ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: n === i ? '#0B4F8A' : '#D1D7DB' }} />
         ))}
       </View>
       <Pressable
-        style={{ backgroundColor: '#075E54', borderRadius: 24, paddingVertical: 14, alignItems: 'center' }}
+        style={{ backgroundColor: '#0B4F8A', borderRadius: 24, paddingVertical: 14, alignItems: 'center' }}
         onPress={() => (akhir ? selesai() : setI(i + 1))}
       >
         <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>{akhir ? 'Mulai' : 'Berikutnya'}</Text>

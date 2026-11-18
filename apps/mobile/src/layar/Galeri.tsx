@@ -44,8 +44,8 @@ export function Galeri({ judul, daftar, namaPengirim, ambil, kembali }: {
       </View>
       <View style={{ flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#E9EDEF' }}>
         {(['media', 'dokumen'] as const).map(t => (
-          <Pressable key={t} style={{ flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 3, borderBottomColor: tab === t ? '#128C7E' : 'transparent' }} onPress={() => setTab(t)}>
-            <Text style={{ fontWeight: '600', color: tab === t ? '#075E54' : '#667781' }}>
+          <Pressable key={t} style={{ flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 3, borderBottomColor: tab === t ? '#1976D2' : 'transparent' }} onPress={() => setTab(t)}>
+            <Text style={{ fontWeight: '600', color: tab === t ? '#0B4F8A' : '#667781' }}>
               {t === 'media' ? `Media (${media.length})` : `Dokumen (${dokumen.length})`}
             </Text>
           </Pressable>

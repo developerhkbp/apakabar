@@ -16,7 +16,7 @@ const Baris = ({ judul, isi, onPress, merah }: { judul: string; isi?: string; on
 )
 
 const Seksi = ({ t }: { t: string }) => (
-  <Text style={{ fontSize: 13, fontWeight: '700', color: '#075E54', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 6 }}>{t}</Text>
+  <Text style={{ fontSize: 13, fontWeight: '700', color: '#0B4F8A', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 6 }}>{t}</Text>
 )
 
 export function Pengaturan({ sesi, fotoV, bukaProfil, kembali, keluar }: { sesi: Sesi; fotoV?: number; bukaProfil: () => void; kembali: () => void; keluar: () => void }) {
@@ -38,8 +38,8 @@ export function Pengaturan({ sesi, fotoV, bukaProfil, kembali, keluar }: { sesi:
           <Text style={{ fontSize: 15, lineHeight: 23, color: '#3B4A54', textAlign: 'center' }}>
             Aplikasi pesan tertutup untuk percakapan pribadi dan grup. Pendaftaran hanya untuk nomor yang telah didaftarkan dan disetujui admin.
           </Text>
-          <View style={{ backgroundColor: '#E7F5EE', borderRadius: 12, padding: 16, alignSelf: 'stretch' }}>
-            <Text style={{ fontWeight: '700', color: '#075E54', marginBottom: 6 }}>🔒 Enkripsi ujung ke ujung</Text>
+          <View style={{ backgroundColor: '#E6F0FB', borderRadius: 12, padding: 16, alignSelf: 'stretch' }}>
+            <Text style={{ fontWeight: '700', color: '#0B4F8A', marginBottom: 6 }}>🔒 Enkripsi ujung ke ujung</Text>
             <Text style={{ fontSize: 14, lineHeight: 21, color: '#3B4A54' }}>
               Pesan dienkripsi di perangkat pengirim dan hanya dapat dibuka di perangkat penerima, memakai Protokol Signal (Double Ratchet untuk percakapan pribadi dan Sender Keys untuk grup). Kunci tidak pernah meninggalkan perangkat Anda; server hanya meneruskan data terenkripsi.
             </Text>
@@ -64,7 +64,7 @@ export function Pengaturan({ sesi, fotoV, bukaProfil, kembali, keluar }: { sesi:
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 19, fontWeight: '600', color: '#111B21' }}>{sesi.nama}</Text>
               <Text style={{ color: '#667781', marginTop: 2 }}>{peran}</Text>
-              <Text style={{ color: '#128C7E', marginTop: 2, fontSize: 13 }}>Ubah foto profil ›</Text>
+              <Text style={{ color: '#1976D2', marginTop: 2, fontSize: 13 }}>Ubah foto profil ›</Text>
             </View>
           </Pressable>
         </View>

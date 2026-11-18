@@ -32,6 +32,8 @@ type Native = {
   /** Token FCM perangkat ini. */
   tokenPush(): Promise<string>
   tujuanNotifikasi(): string | null
+  /** Membuat saluran notifikasi pesan bersuara dering HKBP (Android 8+). */
+  siapkanSaluranPesan(): void
   /** Brankas terenkripsi (Android Keystore) untuk data aplikasi. */
   simpan(nama: string, nilai: string): Promise<void>
   baca(nama: string): Promise<string | null>
@@ -43,6 +45,8 @@ type Native = {
   /** JPEG kecil (data URI) dari foto/video. */
   thumbnail(sumber: string, video: boolean, maks: number): Promise<string | null>
   ukuranBerkas(sumber: string): number
+  /** Isi yang dibagikan dari aplikasi lain lewat menu Bagikan (dibaca sekali); uri kosong = berkas gagal disalin/terlalu besar. */
+  bagikanMasuk(): Promise<{ teks: string; berkas: { uri: string; nama: string; mime: string; ukuran: number }[] } | null>
 }
 
 export default requireNativeModule<Native>('SignalProtocol')

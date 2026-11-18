@@ -1,22 +1,25 @@
 import { StatusBar } from 'expo-status-bar'
 import Signal from './modules/signal-protocol/src'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, AppState, FlatList, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, BackHandler, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
-  adaOnline, adminRingkasan, daftarAnggota, daftarGrup, detailGrup, keluar, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
+  adaOnline, adminRingkasan, blokirAnggota, bukaBlokirAnggota, bungkusReaksi, klaimRiwayat, mintaIzin, ringkasanKontak, statusKontak, terimaIzin, tolakIzin, daftarAnggota, daftarGrup, daftarKomentarStatus, daftarStatus, detailGrup, hapusKomentarStatus, hapusStatusSaya, keluar, kirimKomentarStatus, simpanStatus, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
   profilAnggota, simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
-  GalatApi, type Anggota, type DetailGrup, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
+  GalatApi, type PermintaanObrolan, type StatusKontak, type Anggota, type DetailGrup, type StatusHarian, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
 } from './src/server'
 import { awalNama, EMAS_TUA, s, setTemaAdmin, waktuDaftar } from './src/gaya'
 import { Menunggu } from './src/layar/Menunggu'
 import { Admin } from './src/layar/Admin'
 import { BuatGrup, InfoGrup } from './src/layar/Grup'
 import { buka, bungkus, bungkusLampiran, cuplikanBalas, denganBalasan, ringkas, untukDiteruskan } from './src/konten'
-import { unggahSemua } from './src/lampiran'
+import { saring, unggahSemua, type Terpilih } from './src/lampiran'
 import { Galeri } from './src/layar/Galeri'
 import { ambilPratinjau, cariTautan } from './src/pratinjau'
 import { Percakapan } from './src/layar/Percakapan'
+import { Favorit } from './src/layar/Favorit'
+import { BarisPermintaan, BilahIzin, KartuBlokir } from './src/layar/Izin'
+import { BarisStatus, DetailStatus, KartuStatusSaya } from './src/layar/Status'
 import { Teruskan } from './src/layar/Teruskan'
 import { Avatar, setTokenFoto } from './src/avatar'
 import { Profil } from './src/layar/Profil'
@@ -115,6 +118,9 @@ type Layar =
   | { j: 'buatGrup' }
   | { j: 'admin' }
   | { j: 'pengaturan' }
+  | { j: 'favorit' }
+  | { j: 'status'; id: string; balik: Layar }
+  | { j: 'bagikan'; teks: string; berkas: Terpilih[] }
 
 /** Teks yang akan dienkripsi: bila memuat tautan, metadata situs diambil di perangkat ini dan ikut dikirim. */
 async function siapkanIsi(teks: string): Promise<string> {
@@ -136,6 +142,11 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const [online, setOnline] = useState<Record<string, boolean>>({})
   const [menuPesan, setMenuPesan] = useState<ItemMenu[] | null>(null)
   const [fotoSaya, setFotoSaya] = useState(0)
+  const [statusList, setStatusList] = useState<StatusHarian[]>([])
+  const [izin, setIzin] = useState<Record<string, StatusKontak>>({})
+  const [kontak, setKontak] = useState<{ masuk: PermintaanObrolan[]; diblokir: string[] }>({ masuk: [], diblokir: [] })
+  const [sibukIzin, setSibukIzin] = useState(false)
+  const [menuReaksi, setMenuReaksi] = useState<{ saatIni?: string; pilih: (emoji: string) => void } | null>(null)
   const insets = useSafeAreaInsets()
   /** Pesan yang sedang dibalas di percakapan `kunci`. */
   const [balasan, setBalasan] = useState<{ kunci: string; p: Pesan } | null>(null)
@@ -144,9 +155,69 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const obrolan = useRef<Obrolan | null>(null)
   const layarRef = useRef<Layar>(layar)
   layarRef.current = layar
+  // Tombol back bawaan Android mengikuti tombol kembali di aplikasi: tutup menu dulu, lalu mundur satu layar.
+  const backRef = useRef<() => boolean>(() => false)
+  backRef.current = () => {
+    if (menuPesan) { setMenuPesan(null); return true }
+    if (menu) { setMenu(false); return true }
+    const l = layar
+    switch (l.j) {
+      case 'daftar': return false // di beranda: biarkan Android menutup aplikasi
+      case 'profil': case 'teruskan': case 'infoPesan': case 'status': setLayar(l.balik); return true
+      case 'infoGrup': setLayar({ j: 'grup', grup: l.grup }); return true
+      case 'galeri': setLayar({ j: 'infoGrup', grup: l.grup }); return true
+      default: setLayar({ j: 'daftar' }); return true
+    }
+  }
+  useEffect(() => {
+    const b = BackHandler.addEventListener('hardwareBackPress', () => backRef.current())
+    return () => b.remove()
+  }, [])
   const adalahAdmin = peran !== 'USER'
   setTokenFoto(sesi.token)
   useEffect(() => { versiFotoSaya(sesi.token, sesi.id).then(r => setFotoSaya(r.fotoV)).catch(() => {}) }, [sesi.token])
+  // Status harian: dimuat saat masuk, saat aplikasi kembali aktif, dan tiap menit.
+  useEffect(() => { try { Signal.siapkanSaluranPesan() } catch { /* build lama tanpa fungsi ini */ } }, [])
+  const muatStatus = useCallback(() => { daftarStatus(sesi.token).then(setStatusList).catch(() => {}) }, [sesi.token])
+  useEffect(() => {
+    muatStatus()
+    const t = setInterval(muatStatus, 60_000)
+    const l = AppState.addEventListener('change', st => { if (st === 'active') muatStatus() })
+    return () => { clearInterval(t); l.remove() }
+  }, [muatStatus])
+  const statusSaya = statusList.find(x => x.saya) ?? null
+  // Permintaan izin pesan & daftar blokir: dimuat saat masuk, saat aplikasi aktif, tiap menit, dan saat ada kabar dari server.
+  const muatKontak = useCallback(() => { ringkasanKontak(sesi.token).then(setKontak).catch(() => {}) }, [sesi.token])
+  const muatIzin = useCallback((id: string) => { statusKontak(sesi.token, id).then(st => setIzin(x => ({ ...x, [id]: st }))).catch(() => {}) }, [sesi.token])
+  useEffect(() => {
+    muatKontak()
+    const t = setInterval(muatKontak, 60_000)
+    const l = AppState.addEventListener('change', st => { if (st === 'active') muatKontak() })
+    return () => { clearInterval(t); l.remove() }
+  }, [muatKontak])
+  // Percakapan lama (riwayat ada di perangkat ini) diakui ke server; diterima otomatis begitu kedua pihak mengaku.
+  const sudahKlaim = useRef(false)
+  useEffect(() => {
+    if (!dimuat || !tersambung || sudahKlaim.current) return
+    const ids = Object.entries(pesan).filter(([k, v]) => !k.startsWith('g:') && v.length > 0).map(([k]) => k)
+    sudahKlaim.current = true
+    if (ids.length) klaimRiwayat(sesi.token, ids).then(() => { muatKontak(); const l = layarRef.current; if (l.j === 'orang') muatIzin(l.anggota.id) }).catch(() => { sudahKlaim.current = false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimuat, tersambung])
+  /** Menjalankan aksi izin/blokir lalu menyimpan status terbaru lawan bicara. */
+  const aksiIzin = async (id: string, jalankan: () => Promise<unknown>) => {
+    setSibukIzin(true)
+    try {
+      const r = await jalankan()
+      if (typeof r === 'string') setIzin(x => ({ ...x, [id]: r as StatusKontak }))
+      else muatIzin(id)
+      muatKontak()
+    } catch (e) {
+      Alert.alert('Tidak berhasil', (e as Error)?.message || 'Periksa koneksi lalu coba lagi.')
+    } finally {
+      setSibukIzin(false)
+    }
+  }
   setTemaAdmin(adalahAdmin) // header emas untuk admin (dipasang sebelum layar anak dirender)
   useEffect(() => () => setTemaAdmin(false), [])
 
@@ -236,6 +307,17 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         daftarGrup(sesi.token).then(g => { if (!g.some(x => x.id === l.grup.id)) setLayar({ j: 'daftar' }) }).catch(() => {})
       }
     }
+    o.onReaksi = (kunci, pengirimId, ref, oleh, emoji) =>
+      setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(p => {
+        if (p.dari !== pengirimId || p.ref !== ref) return p
+        const { [oleh]: _lama, ...sisa } = p.reaksi ?? {}
+        return { ...p, reaksi: emoji ? { ...sisa, [oleh]: emoji } : sisa }
+      }) }))
+    o.onButuhIzin = untuk => {
+      muatIzin(untuk)
+      Alert.alert('Pesan belum terkirim', 'Anda perlu izin dulu dari penerima. Buka percakapannya lalu ketuk "Minta izin kirim pesan".')
+    }
+    o.onIzinBerubah = () => { muatKontak(); const l = layarRef.current; if (l.j === 'orang') muatIzin(l.anggota.id) }
     o.onTanda = (kunci, ref, oleh, t, waktu) =>
       setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(p => p.saya && p.ref === ref
         ? { ...p, terima: { ...p.terima, [oleh]: p.terima?.[oleh] ?? waktu }, ...(t === 'baca' ? { baca: { ...p.baca, [oleh]: waktu } } : {}) }
@@ -248,7 +330,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     muatGrup()
     const t = setInterval(muat, 15000)
     return () => { clearInterval(t); o.putus() }
-  }, [sesi, muatGrup])
+  }, [sesi, muatGrup, muatIzin, muatKontak])
 
   // Admin: jumlah permohonan yang menunggu persetujuan
   useEffect(() => {
@@ -268,6 +350,24 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     return () => l.remove()
   }, [adalahAdmin])
 
+  // Isi yang dibagikan dari aplikasi lain (menu Bagikan Android) → pilih tujuan percakapan.
+  useEffect(() => {
+    const cek = async () => {
+      try {
+        const b = await Signal.bagikanMasuk()
+        if (!b) return
+        const { lolos, ditolak } = saring(b.berkas.map(x => (x.uri ? x : { ...x, ukuran: 0 })), 0)
+        const valid = lolos.filter(x => x.uri)
+        if (ditolak.length) Alert.alert('Sebagian berkas tidak dapat dikirim', ditolak.join('\n'))
+        if (!b.teks && !valid.length) return
+        setLayar({ j: 'bagikan', teks: b.teks, berkas: valid })
+      } catch { /* abaikan; bukan intent bagikan */ }
+    }
+    cek()
+    const l = AppState.addEventListener('change', st => { if (st === 'active') cek() })
+    return () => l.remove()
+  }, [])
+
   const sesiSaya = { ...sesi, peran }
 
   // Kirim ulang otomatis pesan yang gagal karena jaringan begitu koneksi pulih.
@@ -277,6 +377,31 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     for (const [kunci, p] of tertunda) kirimUlang(kunci, p, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tersambung, dimuat])
+
+  // Izin kirim pesan dengan lawan bicara di percakapan yang terbuka.
+  const idOrang = layar.j === 'orang' ? layar.anggota.id : null
+  useEffect(() => { if (idOrang) muatIzin(idOrang) }, [idOrang, muatIzin])
+
+  /** Reaksi emoji pada satu pesan (ketuk emoji yang sama lagi = cabut). Dikirim sebagai pesan terenkripsi biasa, tidak tampil sebagai pesan. */
+  const reaksiPesan = async (kunci: string, p: Pesan, emoji: string) => {
+    if (!p.ref) return
+    const baru = p.reaksi?.[sesi.id] === emoji ? '' : emoji
+    setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(m => {
+      if (m.id !== p.id) return m
+      const { [sesi.id]: _lama, ...sisa } = m.reaksi ?? {}
+      return { ...m, reaksi: baru ? { ...sisa, [sesi.id]: baru } : sisa }
+    }) }))
+    const isi = bungkusReaksi(p.dari, p.ref, baru)
+    try {
+      const o = obrolan.current!
+      if (kunci.startsWith('g:')) {
+        const d: DetailGrup = await detailGrup(sesi.token, kunci.slice(2))
+        await o.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi)
+      } else await o.kirim(kunci, isi)
+    } catch (e) {
+      Alert.alert('Reaksi belum terkirim', (e as Error)?.message || 'Periksa koneksi lalu coba lagi.')
+    }
+  }
 
   // Status online lawan bicara di percakapan yang terbuka (diperbarui tiap 15 detik).
   const idLawan = layar.j === 'orang' ? layar.anggota.id : layar.j === 'profil' && layar.jenis === 'anggota' && layar.anggota ? layar.anggota.id : null
@@ -302,16 +427,38 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     setPesan(x => ({ ...x, [kunciTerbuka]: (x[kunciTerbuka] ?? []).map(p => (ids.has(p.id) ? { ...p, dilapor: true } : p)) }))
   }, [kunciTerbuka, pesan, tersambung])
 
+  const gantiFavorit = (kunci: string, p: Pesan) =>
+    setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(m => (m.id === p.id ? { ...m, favorit: !m.favorit } : m)) }))
+  /** Aksi geser pesan (kanan: balas; kiri: teruskan, favorit, hapus) untuk percakapan `kunci`. */
+  const geserPesan = (kunci: string, untukSemua: (p: Pesan) => (() => void) | undefined) => ({
+    balas: (p: Pesan) => setBalasan({ kunci, p }),
+    teruskan: (p: Pesan) => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }),
+    favorit: (p: Pesan) => gantiFavorit(kunci, p),
+    hapus: (p: Pesan) => {
+      const semua = untukSemua(p)
+      const item: ItemMenu[] = [{ label: 'Hapus untuk saya', aksi: () => hapusLokal(kunci, p.id) }]
+      if (semua) item.push({ label: 'Hapus untuk semua', bahaya: true, aksi: semua })
+      setMenuReaksi(null)
+      setMenuPesan(item)
+    },
+  })
+  const favorit = useMemo(
+    () => Object.entries(pesan).flatMap(([kunci, ps]) => ps.filter(p => p.favorit && !p.dihapus).map(p => ({ kunci, p }))).sort((a, b) => b.p.waktu - a.p.waktu),
+    [pesan],
+  )
+
   /** Menu tekan-lama: Info pesan (pesan sendiri), hapus untuk saya, hapus untuk semua bila berwenang. */
   const bukaMenu = (kunci: string, p: Pesan, info: Layar, untukSemua?: () => void) => {
     const item: ItemMenu[] = []
     if (!p.dihapus && p.status !== 'gagal') {
       if (p.ref) item.push({ label: 'Balas', aksi: () => setBalasan({ kunci, p }) })
       item.push({ label: 'Teruskan', aksi: () => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }) })
+      item.push({ label: p.favorit ? 'Hapus dari favorit' : 'Favoritkan', aksi: () => gantiFavorit(kunci, p) })
     }
     if (p.saya && p.status !== 'gagal') item.push({ label: 'Info pesan', aksi: () => setLayar(info) })
     item.push({ label: 'Hapus untuk saya', aksi: () => hapusLokal(kunci, p.id) })
     if (untukSemua) item.push({ label: 'Hapus untuk semua', bahaya: true, aksi: untukSemua })
+    setMenuReaksi(!p.dihapus && p.status !== 'gagal' && p.ref ? { saatIni: p.reaksi?.[sesi.id], pilih: e => reaksiPesan(kunci, p, e) } : null)
     setMenuPesan(item)
   }
 
@@ -325,6 +472,20 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         avatar={<Avatar jenis="anggota" id={lawan.id} v={anggota.find(a => a.id === lawan.id)?.fotoV} nama={lawan.nama} ukuran={36} />}
         bukaInfo={() => setLayar({ j: 'profil', jenis: 'anggota', anggota: lawan, balik: layar })}
         judul={lawan.nama}
+        saya={sesi.id}
+        bilahIzin={izin[lawan.id] && izin[lawan.id] !== 'IZIN' ? (
+          <BilahIzin
+            nama={lawan.nama} status={izin[lawan.id]} sibuk={sibukIzin}
+            minta={() => aksiIzin(lawan.id, () => mintaIzin(sesi.token, lawan.id))}
+            terima={() => aksiIzin(lawan.id, () => terimaIzin(sesi.token, lawan.id))}
+            tolak={() => aksiIzin(lawan.id, async () => { await tolakIzin(sesi.token, lawan.id); setLayar({ j: 'daftar' }) })}
+            blokir={() => Alert.alert(`Blokir ${lawan.nama}?`, 'Anda tidak akan menerima pesan darinya, dan statusnya tidak akan terlihat satu sama lain.', [
+              { text: 'Batal', style: 'cancel' },
+              { text: 'Blokir', style: 'destructive', onPress: () => aksiIzin(lawan.id, () => blokirAnggota(sesi.token, lawan.id)) },
+            ])}
+            bukaBlokir={() => aksiIzin(lawan.id, () => bukaBlokirAnggota(sesi.token, lawan.id))}
+          />
+        ) : undefined}
         daftar={pesan[lawan.id] ?? []}
         kembali={() => setLayar({ j: 'daftar' })}
         ambil={l => obrolan.current!.ambilBerkas(l)}
@@ -335,12 +496,13 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         tekanLama={p => bukaMenu(lawan.id, p, { j: 'infoPesan', kunci: lawan.id, id: p.id, lawan, balik: layar }, p.saya && p.ref && p.status !== 'gagal' ? () => obrolan.current?.hapusPesanPribadi(lawan.id, p.ref!) : undefined)}
         kirim={async teks => { await kirimKe(lawan.id, denganBalas(lawan.id, await siapkanIsi(teks))) }}
         kirimUlang={p => kirimUlang(lawan.id, p)}
+        geser={geserPesan(lawan.id, p => (p.saya && p.ref && p.status !== 'gagal' ? () => obrolan.current?.hapusPesanPribadi(lawan.id, p.ref!) : undefined))}
         subjudul={online[lawan.id] ? 'online' : undefined}
         balasan={balasan?.kunci === lawan.id ? balasan.p : null}
         batalBalas={() => setBalasan(null)}
         namaBalas={id => (id === sesi.id ? 'Anda' : lawan.nama)}
       />
-      {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
+      {menuPesan ? <MenuPesan item={menuPesan} reaksi={menuReaksi ?? undefined} tutup={() => { setMenuPesan(null); setMenuReaksi(null) }} /> : null}
       </View>
     )
   }
@@ -355,6 +517,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         fotoPengirim={id => <Avatar jenis="anggota" id={id} v={anggota.find(a => a.id === id)?.fotoV} nama={namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota'} ukuran={28} />}
         avatar={<Avatar jenis="grup" id={g.id} v={grup.find(x => x.id === g.id)?.fotoV} nama={g.nama} ukuran={36} />}
         judul={g.nama}
+        saya={sesi.id}
         subjudul={`${g.jumlah} anggota`}
         grup
         daftar={pesan[k] ?? []}
@@ -373,11 +536,12 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         }}
         kirim={async teks => { await kirimKe(k, denganBalas(k, await siapkanIsi(teks))) }}
         kirimUlang={p => kirimUlang(k, p)}
+        geser={geserPesan(k, p => ((p.saya || adalahAdmin || g.peranSaya === 'ADMIN_GRUP') && !!p.ref ? () => obrolan.current?.hapusPesanGrup(g.id, p.dari, p.ref!) : undefined))}
         balasan={balasan?.kunci === k ? balasan.p : null}
         batalBalas={() => setBalasan(null)}
         namaBalas={id => (id === sesi.id ? 'Anda' : namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota')}
       />
-      {menuPesan ? <MenuPesan item={menuPesan} tutup={() => setMenuPesan(null)} /> : null}
+      {menuPesan ? <MenuPesan item={menuPesan} reaksi={menuReaksi ?? undefined} tutup={() => { setMenuPesan(null); setMenuReaksi(null) }} /> : null}
       </View>
     )
   }
@@ -395,6 +559,35 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           const isi = untukDiteruskan(t.isi)
           for (const kunci of tujuan) await kirimKe(kunci, isi, true)
           setLayar(t.balik)
+        }}
+      />
+    )
+  }
+
+  if (layar.j === 'bagikan') {
+    const t = layar
+    const ringkasan = t.teks || `${t.berkas.length} berkas: ${t.berkas.map(x => x.nama).join(', ')}`
+    return (
+      <Teruskan
+        anggota={anggota}
+        grup={grup}
+        isi={ringkasan}
+        kunciAsal=""
+        kembali={() => setLayar({ j: 'daftar' })}
+        kirim={async tujuan => {
+          try {
+            // Berkas dienkripsi dan diunggah sekali; kuncinya ikut di tiap pesan tujuan.
+            const lampiran = t.berkas.length ? await unggahSemua(u => obrolan.current!.unggahBerkas(u), t.berkas, () => {}) : []
+            const isi = lampiran.length ? bungkusLampiran(t.teks, lampiran) : await siapkanIsi(t.teks)
+            for (const kunci of tujuan) await kirimKe(kunci, isi, true)
+            // satu tujuan → langsung buka percakapannya (seperti WhatsApp); beberapa tujuan → kembali ke beranda
+            const k = tujuan.length === 1 ? tujuan[0] : null
+            const g = k?.startsWith('g:') ? grup.find(x => x.id === k.slice(2)) : undefined
+            const a = k && !k.startsWith('g:') ? anggota.find(x => x.id === k) : undefined
+            setLayar(g ? { j: 'grup', grup: g } : a ? { j: 'orang', anggota: a } : { j: 'daftar' })
+          } catch (e) {
+            Alert.alert('Gagal membagikan', (e as Error).message || 'Periksa koneksi lalu coba lagi.')
+          }
         }}
       />
     )
@@ -449,6 +642,21 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     )
   }
 
+  if (layar.j === 'favorit') {
+    const namaTempat = (kunci: string) => (kunci.startsWith('g:') ? grup.find(g => g.id === kunci.slice(2))?.nama ?? 'Grup' : namaAnggota.get(kunci) ?? 'Obrolan')
+    return (
+      <Favorit
+        daftar={favorit.map(({ kunci, p }) => ({ kunci, p, tempat: namaTempat(kunci), pengirim: p.saya ? 'Anda' : namaAnggota.get(p.dari) ?? namaGrup[p.dari] ?? 'Anggota' }))}
+        buka={kunci => {
+          if (kunci.startsWith('g:')) { const g = grup.find(x => x.id === kunci.slice(2)); if (g) setLayar({ j: 'grup', grup: g }) }
+          else { const a = anggota.find(x => x.id === kunci); if (a) setLayar({ j: 'orang', anggota: a }) }
+        }}
+        lepas={gantiFavorit}
+        kembali={() => setLayar({ j: 'daftar' })}
+      />
+    )
+  }
+
   if (layar.j === 'pengaturan') {
     return <Pengaturan sesi={sesiSaya} fotoV={fotoSaya} bukaProfil={() => setLayar({ j: 'profil', jenis: 'saya', balik: layar })} kembali={() => setLayar({ j: 'daftar' })} keluar={onKeluar} />
   }
@@ -465,6 +673,14 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           jenis="anggota" id={sesi.id} nama={sesi.nama} v={fotoSaya} bolehUbah lencana={adalahAdmin ? (peran === 'ADMIN_UTAMA' ? 'ADMIN UTAMA' : 'ADMIN') : undefined}
           simpanFoto={async d => setFotoSaya((await ubahFotoSaya(sesi.token, d)).fotoV)}
           muat={() => profilAnggota(sesi.token, sesi.id)} saya
+          tambahan={
+            <KartuStatusSaya
+              status={statusSaya}
+              simpan={async (teks, suasana) => { await simpanStatus(sesi.token, teks, suasana); muatStatus() }}
+              hapus={async () => { await hapusStatusSaya(sesi.token); setStatusList(x => x.filter(y => !y.saya)) }}
+              buka={() => statusSaya && setLayar({ j: 'status', id: statusSaya.id, balik: layar })}
+            />
+          }
           kembali={() => setLayar(balik)}
         />
       )
@@ -488,7 +704,36 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         simpanFoto={async () => {}}
         muat={() => profilAnggota(sesi.token, a.id)} online={online[a.id]}
         kirimPesan={() => setLayar({ j: 'orang', anggota: a })}
+        tambahan={(() => {
+          const diblokir = kontak.diblokir.includes(a.id) || izin[a.id] === 'DIBLOKIR_SAYA'
+          return (
+            <KartuBlokir
+              nama={a.nama} diblokir={diblokir}
+              ubah={() => diblokir
+                ? aksiIzin(a.id, () => bukaBlokirAnggota(sesi.token, a.id))
+                : Alert.alert(`Blokir ${a.nama}?`, 'Anda tidak akan menerima pesan darinya, dan statusnya tidak akan terlihat satu sama lain.', [
+                    { text: 'Batal', style: 'cancel' },
+                    { text: 'Blokir', style: 'destructive', onPress: () => aksiIzin(a.id, () => blokirAnggota(sesi.token, a.id)) },
+                  ])}
+            />
+          )
+        })()}
         kembali={() => setLayar(balik)}
+      />
+    )
+  }
+  if (layar.j === 'status') {
+    const st = statusList.find(x => x.id === layar.id)
+    if (!st) { setLayar(layar.balik); return <View style={s.root} /> }
+    return (
+      <DetailStatus
+        key={st.id}
+        status={st} anggota={anggota} saya={sesi.id}
+        muat={() => daftarKomentarStatus(sesi.token, st.id)}
+        kirim={t => kirimKomentarStatus(sesi.token, st.id, t)}
+        hapusKomentar={async id => { await hapusKomentarStatus(sesi.token, st.id, id) }}
+        berubah={muatStatus}
+        kembali={() => setLayar(layar.balik)}
       />
     )
   }
@@ -520,14 +765,14 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     const n = belumBaca[kunci] ?? 0
     return (
       <Pressable
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: pressed ? '#F1F4F3' : '#fff', borderRadius: 18, marginHorizontal: 12, marginVertical: 4, paddingHorizontal: 14, paddingVertical: 12, elevation: 1 })}
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: pressed ? '#F1F4F8' : '#fff', borderRadius: 18, marginHorizontal: 12, marginVertical: 4, paddingHorizontal: 14, paddingVertical: 12, elevation: 1 })}
         onPress={() => { setBelumBaca(b => ({ ...b, [kunci]: 0 })); buka() }}
       >
         {avatar}
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={[s.nama, { flex: 1 }]} numberOfLines={1}>{judul}</Text>
-            {terakhir ? <Text style={{ fontSize: 12, color: n > 0 ? '#128C7E' : '#8696A0', fontWeight: n > 0 ? '700' : '400' }}>{waktuDaftar(terakhir.waktu)}</Text> : null}
+            {terakhir ? <Text style={{ fontSize: 12, color: n > 0 ? '#1976D2' : '#8696A0', fontWeight: n > 0 ? '700' : '400' }}>{waktuDaftar(terakhir.waktu)}</Text> : null}
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 }}>
             <Text style={[s.cuplikan, { flex: 1, marginTop: 0 }, n > 0 && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>
@@ -554,9 +799,16 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
               </View>
             ) : null}
           </View>
-          <Pressable onPress={() => setMenu(true)} hitSlop={14}>
-            <Text style={{ color: '#fff', fontSize: 22 }}>⋮{adalahAdmin && menunggu > 0 ? ' •' : ''}</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <Pressable onPress={() => setLayar({ j: 'profil', jenis: 'saya', balik: { j: 'daftar' } })} hitSlop={10} accessibilityLabel="Profil saya">
+              <View style={{ padding: 2, borderRadius: 22, borderWidth: 2, borderColor: statusSaya ? '#fff' : 'transparent' }}>
+                <Avatar jenis="anggota" id={sesi.id} v={fotoSaya} nama={sesi.nama} ukuran={36} />
+              </View>
+            </Pressable>
+            <Pressable onPress={() => setMenu(true)} hitSlop={14}>
+              <Text style={{ color: '#fff', fontSize: 22 }}>⋮{adalahAdmin && menunggu > 0 ? ' •' : ''}</Text>
+            </Pressable>
+          </View>
         </View>
         <Text style={s.subjudul}>{sesi.nama} · {tersambung ? 'online' : 'menyambung…'}</Text>
       </View>
@@ -565,11 +817,17 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         <TextInput style={{ flex: 1, fontSize: 15.5, paddingVertical: 12, color: '#111' }} value={cari} onChangeText={setCari} placeholder="Cari obrolan atau grup" placeholderTextColor="#8696A0" />
       </View>
       <FlatList
-        style={{ backgroundColor: '#F4F6F5' }}
+        style={{ backgroundColor: '#F4F6F9' }}
         contentContainerStyle={{ paddingTop: 4, paddingBottom: 100 + insets.bottom }}
         data={data}
         keyExtractor={(b, i) => (b.t === 'seksi' ? `s${b.label}` : b.t === 'grup' ? `g${b.g.id}` : `a${b.a.id}`) + i}
         keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={q ? undefined : (
+          <>
+            <BarisPermintaan daftar={kontak.masuk} buka={r => setLayar({ j: 'orang', anggota: { id: r.id, nama: r.nama, fotoV: r.fotoV } })} />
+            <BarisStatus daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: { j: 'daftar' } })} />
+          </>
+        )}
         ListEmptyComponent={<Text style={s.kosong}>{q ? 'Tidak ada yang cocok.' : 'Belum ada obrolan. Ketuk tombol hijau di kanan bawah untuk memulai.'}</Text>}
         initialNumToRender={14}
         windowSize={7}
@@ -582,11 +840,11 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
       <Pressable
         onPress={() => setLayar({ j: 'kontak' })}
         accessibilityLabel="Obrolan baru"
-        style={{ position: 'absolute', right: 18, bottom: 22 + insets.bottom, width: 60, height: 60, borderRadius: 18, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', elevation: 5 }}
+        style={{ position: 'absolute', right: 18, bottom: 22 + insets.bottom, width: 60, height: 60, borderRadius: 18, backgroundColor: '#42A5F5', alignItems: 'center', justifyContent: 'center', elevation: 5 }}
       >
         {/* ikon gelembung obrolan dengan tanda + (digambar dengan View, tanpa emoji) */}
         <View style={{ width: 28, height: 24, borderRadius: 8, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: '#128C7E', fontSize: 20, fontWeight: '800', lineHeight: 22, marginTop: -1 }}>+</Text>
+          <Text style={{ color: '#1976D2', fontSize: 20, fontWeight: '800', lineHeight: 22, marginTop: -1 }}>+</Text>
         </View>
         <View style={{ position: 'absolute', left: 18, top: 41, width: 0, height: 0, borderTopWidth: 7, borderTopColor: '#fff', borderRightWidth: 7, borderRightColor: 'transparent' }} />
       </Pressable>
@@ -606,6 +864,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
             ) : null}
             <Pressable style={s.menuItem} onPress={() => { setMenu(false); setLayar({ j: 'profil', jenis: 'saya', balik: { j: 'daftar' } }) }}>
               <Text style={s.menuTeks}>Profil saya</Text>
+            </Pressable>
+            <Pressable style={s.menuItem} onPress={() => { setMenu(false); setLayar({ j: 'favorit' }) }}>
+              <Text style={s.menuTeks}>Pesan berbintang{favorit.length ? ` (${favorit.length})` : ''}</Text>
             </Pressable>
             <Pressable style={s.menuItem} onPress={() => { setMenu(false); setLayar({ j: 'pengaturan' }) }}>
               <Text style={s.menuTeks}>Pengaturan</Text>

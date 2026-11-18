@@ -299,7 +299,7 @@ function Rinci({ token, a, kembali, bisaUbah, ubah }: { token: string; a: Anggot
         </View>
 
         <View style={kotak}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#075E54', letterSpacing: 0.6 }}>JABATAN & TEMPAT BERTUGAS (SUPERAPP)</Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#0B4F8A', letterSpacing: 0.6 }}>JABATAN & TEMPAT BERTUGAS (SUPERAPP)</Text>
           {!d && !galat ? <ActivityIndicator style={{ marginTop: 14 }} /> : null}
           {galat ? <Text style={{ color: '#C62828', marginTop: 8 }}>{galat}</Text> : null}
           {d?.superappGalat ? <Text style={{ color: '#8696A0', marginTop: 8 }}>{d.superappGalat}</Text> : null}

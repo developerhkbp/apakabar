@@ -13,6 +13,9 @@ const JEDA_PER_PENERIMA_MS = 5000
  * dan tanpa isi, sehingga Google/Apple tidak pernah melihat metadata percakapan.
  * Bila FIREBASE_KEY_PATH tidak diisi, push dinonaktifkan (hanya dicatat di log).
  */
+/** Saluran notifikasi di aplikasi (bersuara dering HKBP); bila belum ada di perangkat, FCM memakai saluran bawaan. */
+const SALURAN_PESAN = 'apakabar_pesan_v1'
+
 @Injectable()
 export class PushService {
   private readonly log = new Logger('Push')
@@ -55,7 +58,7 @@ export class PushService {
           token: p.pushToken!,
           notification: { title: 'ApaKabaR', body: 'Ada anggota menunggu persetujuan' },
           data: { tujuan: 'persetujuan' },
-          android: { priority: 'high', notification: { tag: 'menunggu-persetujuan' } },
+          android: { priority: 'high', notification: { tag: 'menunggu-persetujuan', channelId: SALURAN_PESAN, sound: 'notifikasi_hkbp' } },
         })
       } catch (e) {
         const kode = (e as { code?: string }).code ?? ''
@@ -81,7 +84,7 @@ export class PushService {
       await getMessaging(this.app).send({
         token: p.pushToken,
         notification: { title: 'ApaKabaR', body: 'Pesan baru' },
-        android: { priority: 'high', notification: { tag: 'pesan-baru' } },
+        android: { priority: 'high', notification: { tag: 'pesan-baru', channelId: SALURAN_PESAN, sound: 'notifikasi_hkbp' } },
       })
     } catch (e) {
       const kode = (e as { code?: string }).code ?? ''

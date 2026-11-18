@@ -15,7 +15,11 @@ export type Pesan = { id: string; dari: string; teks: string; waktu: number; say
   /** Pesan masuk yang sudah dilaporkan dibaca ke pengirim. */
   dilapor?: boolean
   /** Gagal terkirim karena jaringan/koneksi; dicoba kirim ulang otomatis saat tersambung kembali. */
-  gagalJaringan?: boolean }
+  gagalJaringan?: boolean
+  /** Ditandai bintang oleh pemilik perangkat; hanya tersimpan lokal di riwayat terenkripsi. */
+  favorit?: boolean
+  /** Reaksi emoji per pemberi (id anggota → emoji). */
+  reaksi?: Record<string, string> }
 export type StatusAnggota = 'DIUNDANG' | 'MENUNGGU' | 'AKTIF' | 'DITANGGUHKAN'
 export type PeranAnggota = 'USER' | 'ADMIN' | 'ADMIN_UTAMA'
 export type Sesi = { id: string; nama: string; token: string; refresh: string; status?: StatusAnggota; peran?: PeranAnggota }
@@ -203,6 +207,10 @@ export const ubahPeranGrup = (t: string, id: string, anggotaId: string, peran: P
 /** Pesan kontrol di dalam sesi 1:1: membagikan kunci pengirim grup (Sender Key). Tidak ditampilkan sebagai pesan. */
 const AWALAN_KUNCI = '\u0001SKDM:'
 
+/** Reaksi emoji pada satu pesan: pesan terenkripsi biasa berisi `<RX>pengirimPesan|refPesan|emoji` (emoji kosong = cabut reaksi). */
+const AWALAN_REAKSI = '\u0001RX:'
+export const bungkusReaksi = (pengirimId: string, ref: string, emoji: string) => `${AWALAN_REAKSI}${pengirimId}|${ref}|${emoji}`
+
 type TerbagiGrup = Record<string, { dist: string; ke: string[] }>
 
 /** Koneksi relay + enkripsi. Kunci hanya ada di perangkat; server hanya melihat ciphertext. */
@@ -224,6 +232,12 @@ export class Obrolan {
   onGrupBerubah: () => void = () => {}
   onStatusBerubah: () => void = () => {}
   onPeran: (peran: PeranAnggota) => void = () => {}
+  /** Reaksi masuk: kunci obrolan, pengirim pesan asli, ref pesan, pemberi reaksi, emoji ('' = dicabut). */
+  onReaksi: (kunci: string, pengirimId: string, ref: string, oleh: string, emoji: string) => void = () => {}
+  /** Server menolak pesan karena belum ada izin obrolan dengan `untuk`. */
+  onButuhIzin: (untuk: string) => void = () => {}
+  /** Permintaan izin berubah (ada yang meminta atau menerima). */
+  onIzinBerubah: () => void = () => {}
 
   constructor(public sesi: Sesi) {}
 
@@ -301,7 +315,11 @@ export class Obrolan {
       if (m.t === 'terkirim') {
         this.onStatus(m.idKlien, 'terkirim')
         this.menungguTerkirim.get(m.idKlien)?.()
-      } else if (m.t === 'galat') console.warn('relay:', m.pesan)
+      } else if (m.t === 'galat') {
+        console.warn('relay:', m.pesan)
+        if (m.idKlien) this.onStatus(m.idKlien, 'gagal')
+        if (m.kode === 'IZIN' && m.untuk) this.onButuhIzin(m.untuk)
+      } else if (m.t === 'izinBerubah') this.onIzinBerubah()
       else if (m.t === 'grupBerubah') this.onGrupBerubah()
       else if (m.t === 'statusBerubah') { this.muatProfil(); this.onStatusBerubah() }
       else if (m.t === 'masuk') this.antrean = this.antrean.then(() => this.tangani(ws, m))
@@ -319,10 +337,11 @@ export class Obrolan {
         if (h.t === 'sampai' || h.t === 'baca') this.onTanda(m.grupId ? kunciGrup(m.grupId) : m.dari, h.idKlien, m.dari, h.t, h.waktu)
       } else if (m.grupId) {
         const teks = await Signal.dekripsiGrup(m.dari, m.isi)
-        this.onPesanGrup(m.grupId, { id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
+        if (!this.keReaksi(kunciGrup(m.grupId), m.dari, teks)) this.onPesanGrup(m.grupId, { id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
       } else {
         const teks = await Signal.dekripsi(m.dari, m.jenis, m.isi)
         if (teks.startsWith(AWALAN_KUNCI)) await Signal.terimaKunciGrup(m.dari, teks.slice(AWALAN_KUNCI.length))
+        else if (this.keReaksi(m.dari, m.dari, teks)) { /* reaksi: bukan pesan */ }
         else this.onPesan({ id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
       }
     } catch (err) {
@@ -330,6 +349,14 @@ export class Obrolan {
     }
     // Tetap di-ack: pesan yang tak bisa didekripsi (mis. terkirim ganda) tidak akan pernah bisa dibaca.
     if (ws.readyState === 1) ws.send(JSON.stringify({ event: 'ack', data: { id: m.id } }))
+  }
+
+  /** Bila `teks` adalah reaksi, teruskan ke onReaksi dan kembalikan true. */
+  private keReaksi(kunci: string, oleh: string, teks: string) {
+    if (!teks.startsWith(AWALAN_REAKSI)) return false
+    const [pengirimId, ref, emoji] = teks.slice(AWALAN_REAKSI.length).split('|')
+    if (pengirimId && ref) this.onReaksi(kunci, pengirimId, ref, oleh, emoji ?? '')
+    return true
   }
 
   putus() {
@@ -350,10 +377,10 @@ export class Obrolan {
     if (this.ws?.readyState !== 1) throw new GalatApi('Belum tersambung ke server', 0)
   }
 
-  private kirimCipher(untuk: string, c: { jenis: number; isi: string }) {
+  private kirimCipher(untuk: string, c: { jenis: number; isi: string }, kunciGrup = false) {
     this.pastikanTersambung()
     const idKlien = `${Date.now()}-${++this.nomor}`
-    this.ws?.send(JSON.stringify({ event: 'kirim', data: { untuk, jenis: c.jenis, isi: c.isi, idKlien } }))
+    this.ws?.send(JSON.stringify({ event: 'kirim', data: { untuk, jenis: c.jenis, isi: c.isi, idKlien, ...(kunciGrup ? { kunciGrup: true } : {}) } }))
     return idKlien
   }
 
@@ -394,7 +421,7 @@ export class Obrolan {
     for (let i = 0; i < belum.length; i += 10) {
       await Promise.all(belum.slice(i, i + 10).map(async id => {
         await this.pastikanSesi(id)
-        const idKlien = this.kirimCipher(id, await Signal.enkripsi(id, isi))
+        const idKlien = this.kirimCipher(id, await Signal.enkripsi(id, isi), true)
         await this.tungguTerkirim(idKlien)
         catatan.ke.push(id)
       }))
@@ -456,6 +483,29 @@ export type ProfilAnggota = {
   grupBersama: { id: string; nama: string; fotoV: number; jumlah: number; peranDiGrup: PeranGrup }[]
 }
 export const profilAnggota = (token: string, id: string) => api<ProfilAnggota>('GET', `/anggota/${id}/profil`, undefined, token)
+/** Status harian "Apa kabar Anda hari ini?" — berlaku 24 jam, tampil untuk teman satu grup buatan manual. Tidak E2EE. */
+export type StatusHarian = {
+  id: string; anggotaId: string; nama: string; teks: string; suasana: string | null
+  dibuatPada: string; kedaluwarsa: string; jumlahKomentar: number; saya: boolean
+}
+export type KomentarStatus = { id: string; anggotaId: string; nama: string; teks: string; dibuatPada: string }
+export const daftarStatus = (token: string) => api<StatusHarian[]>('GET', '/status', undefined, token)
+export const simpanStatus = (token: string, teks: string, suasana?: string) => api<StatusHarian>('POST', '/status', { teks, suasana }, token)
+export const hapusStatusSaya = (token: string) => api<{ ok: boolean }>('DELETE', '/status', undefined, token)
+export const daftarKomentarStatus = (token: string, id: string) => api<KomentarStatus[]>('GET', `/status/${id}/komentar`, undefined, token)
+export const kirimKomentarStatus = (token: string, id: string, teks: string) => api<KomentarStatus>('POST', `/status/${id}/komentar`, { teks }, token)
+export const hapusKomentarStatus = (token: string, id: string, komentarId: string) => api<{ ok: boolean }>('DELETE', `/status/${id}/komentar/${komentarId}`, undefined, token)
+/** Izin obrolan 1:1 dan blokir. */
+export type StatusKontak = 'IZIN' | 'BELUM' | 'SAYA_MINTA' | 'DIA_MINTA' | 'DIBLOKIR_SAYA'
+export type PermintaanObrolan = { id: string; nama: string; fotoV: number; waktu: string }
+export const statusKontak = (t: string, id: string) => api<{ status: StatusKontak }>('GET', `/kontak/${id}/status`, undefined, t).then(r => r.status)
+export const mintaIzin = (t: string, id: string) => api<{ status: StatusKontak }>('POST', `/kontak/${id}/minta`, undefined, t).then(r => r.status)
+export const terimaIzin = (t: string, id: string) => api<{ status: StatusKontak }>('POST', `/kontak/${id}/terima`, undefined, t).then(r => r.status)
+export const tolakIzin = (t: string, id: string) => api<{ ok: boolean }>('POST', `/kontak/${id}/tolak`, undefined, t)
+export const blokirAnggota = (t: string, id: string) => api<{ status: StatusKontak }>('POST', `/kontak/${id}/blokir`, undefined, t).then(r => r.status)
+export const bukaBlokirAnggota = (t: string, id: string) => api<{ status: StatusKontak }>('DELETE', `/kontak/${id}/blokir`, undefined, t).then(r => r.status)
+export const klaimRiwayat = (t: string, ids: string[]) => api<{ diterima: number }>('POST', '/kontak/riwayat', { ids }, t)
+export const ringkasanKontak = (t: string) => api<{ masuk: PermintaanObrolan[]; diblokir: string[] }>('GET', '/kontak/ringkasan', undefined, t)
 export const adaOnline = (token: string, id: string) => api<{ online: boolean }>('GET', `/anggota/${id}/online`, undefined, token).then(r => r.online)
 
 export type PenugasanSuperapp = { jabatan: string; jenis: string; plt: boolean; unitOrg: string; unit: string | null; induk: string | null; sejak: string | null }

@@ -1,5 +1,10 @@
 package expo.modules.signalprotocol
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.media.AudioAttributes
+import android.net.Uri
+import android.os.Build
 import android.util.Base64
 import com.google.firebase.messaging.FirebaseMessaging
 import expo.modules.kotlin.Promise
@@ -36,6 +41,7 @@ import java.util.UUID
 class SignalProtocolModule : Module() {
   private val brankas by lazy { Brankas(java.io.File(appContext.reactContext!!.filesDir, "apakabar")) }
   private var toko: TokoSignal? = null
+  @Volatile private var bagikanTertunda: android.content.Intent? = null
 
   private fun ambil(): TokoSignal {
     toko?.let { return it }
@@ -162,12 +168,47 @@ class SignalProtocolModule : Module() {
       }
     }
 
+    /** Saluran notifikasi pesan dengan suara dering HKBP (res/raw/notifikasi_hkbp), sama dengan superapp. Aman dipanggil berulang. */
+    Function("siapkanSaluranPesan") {
+      val ctx = appContext.reactContext ?: return@Function null
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        val suara = Uri.parse("android.resource://${ctx.packageName}/raw/notifikasi_hkbp")
+        val atribut = AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+        val saluran = NotificationChannel("apakabar_pesan_v1", "Pesan ApaKabaR", NotificationManager.IMPORTANCE_HIGH).apply {
+          description = "Pemberitahuan pesan dan permintaan baru"
+          enableVibration(true)
+          setSound(suara, atribut)
+        }
+        nm?.createNotificationChannel(saluran)
+      }
+      null
+    }
+
     /** Tujuan dari notifikasi yang diketuk (extra "tujuan" pada intent peluncuran); dibaca sekali lalu dihapus. */
     Function("tujuanNotifikasi") {
       val intent = appContext.currentActivity?.intent
       val tujuan = intent?.getStringExtra("tujuan")
       if (tujuan != null) intent?.removeExtra("tujuan")
       tujuan
+    }
+
+    // --- Isi yang dibagikan dari aplikasi lain (menu Bagikan Android) ---
+    // Intent baru (aplikasi sudah berjalan) tidak otomatis menjadi intent Activity, jadi disimpan di sini.
+    OnNewIntent { intent -> if (Bagikan.adalahBagikan(intent)) bagikanTertunda = intent }
+
+    /** Isi bagikan yang belum diproses ({teks, berkas[]}) atau null; dibaca sekali lalu ditandai selesai. */
+    AsyncFunction("bagikanMasuk") {
+      val ctx = appContext.reactContext ?: return@AsyncFunction null
+      val i = bagikanTertunda ?: appContext.currentActivity?.intent
+      if (i == null || !Bagikan.adalahBagikan(i)) return@AsyncFunction null
+      bagikanTertunda = null
+      val hasil = Bagikan.baca(ctx, i)
+      Bagikan.tandaiSelesai(i)
+      hasil
     }
 
     // --- Brankas terenkripsi untuk data aplikasi (token, riwayat pesan) ---

@@ -1,8 +1,11 @@
 import type { Pratinjau } from './konten'
 
 const MAKS_HTML = 1_500_000 // byte
-const MAKS_GAMBAR = 60_000 // byte; lebih besar dari ini gambar dilewati agar pesan tetap ringan
-const BATAS_WAKTU_MS = 4000
+const MAKS_GAMBAR = 110_000 // byte; lebih besar dari ini gambar dilewati agar pesan tetap ringan (batas isi pesan 256 ribu karakter base64)
+const BATAS_WAKTU_MS = 8000
+// Situs umumnya menyajikan tag Open Graph penuh kepada pengambil pratinjau yang dikenal (Facebook/WhatsApp); UA peramban dipakai sebagai cadangan.
+const UA_PRATINJAU = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'
+const UA_PERAMBAN = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
 
 /** Tautan http(s) pertama di dalam teks, atau undefined. */
 export function cariTautan(teks: string): string | undefined {
@@ -42,8 +45,8 @@ function keBase64(b: Uint8Array): string {
   return o
 }
 
-async function ambil(url: string, sinyal: AbortSignal) {
-  return fetch(url, { signal: sinyal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ApaKabaR link preview)', Accept: 'text/html,image/*;q=0.8' } })
+async function ambil(url: string, sinyal: AbortSignal, ua = UA_PRATINJAU) {
+  return fetch(url, { signal: sinyal, headers: { 'User-Agent': ua, Accept: 'text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5', 'Accept-Language': 'id,en;q=0.8' } })
 }
 
 /**
@@ -54,12 +57,21 @@ export async function ambilPratinjau(url: string): Promise<Pratinjau | undefined
   const kendali = new AbortController()
   const t = setTimeout(() => kendali.abort(), BATAS_WAKTU_MS)
   try {
-    const res = await ambil(url, kendali.signal)
-    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return undefined
-    if (Number(res.headers.get('content-length') ?? 0) > MAKS_HTML) return undefined
-    const html = (await res.text()).slice(0, MAKS_HTML)
-
-    const judul = meta(html, 'og:title') ?? meta(html, 'twitter:title') ?? entitas(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '')
+    // coba sebagai pengambil pratinjau dulu; bila tak ada judul, ulangi dengan UA peramban
+    let html = ''
+    let judul: string | undefined
+    for (const ua of [UA_PRATINJAU, UA_PERAMBAN]) {
+      try {
+        const res = await ambil(url, kendali.signal, ua)
+        if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) continue
+        if (Number(res.headers.get('content-length') ?? 0) > MAKS_HTML) continue
+        html = (await res.text()).slice(0, MAKS_HTML)
+        judul = meta(html, 'og:title') ?? meta(html, 'twitter:title') ?? (entitas(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '') || undefined)
+        if (judul) break
+      } catch (e) {
+        if (kendali.signal.aborted) throw e
+      }
+    }
     if (!judul) return undefined
     const p: Pratinjau = {
       url,

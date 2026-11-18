@@ -28,10 +28,13 @@ export type Lampiran = {
   u: number
   /** thumbnail JPEG kecil (data URI) untuk foto/video */
   th?: string
+  /** durasi (detik) untuk pesan suara */
+  d?: number
 }
 
 export const adalahFoto = (l: Lampiran) => l.m.startsWith('image/')
 export const adalahVideo = (l: Lampiran) => l.m.startsWith('video/')
+export const adalahAudio = (l: Lampiran) => l.m.startsWith('audio/')
 
 export type Pratinjau = {
   url: string
@@ -110,7 +113,7 @@ export const ringkas = (mentah: string): string => {
   const k = buka(mentah)
   if (k.lampiran?.length) {
     const l = k.lampiran[0]
-    const ikon = adalahFoto(l) ? '📷 Foto' : adalahVideo(l) ? '🎥 Video' : '📎 ' + l.n
+    const ikon = adalahFoto(l) ? '📷 Foto' : adalahVideo(l) ? '🎥 Video' : adalahAudio(l) ? '🎤 Pesan suara' : '📎 ' + l.n
     return (k.teks || (k.lampiran.length > 1 ? `${ikon} +${k.lampiran.length - 1}` : ikon))
   }
   return k.teks || (k.pratinjau ? k.pratinjau.judul : '')

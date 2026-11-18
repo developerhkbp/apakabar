@@ -44,6 +44,75 @@ model Anggota {
   perangkat        Perangkat?
   pesanMasuk       PesanAntrean[] @relation("Penerima")
   keanggotaanGrup  AnggotaGrup[]
+  statusHarian     StatusHarian?
+  komentarStatus   StatusKomentar[]
+}
+
+// Status harian ("Apa kabar Anda hari ini?"). Satu status aktif per anggota, berlaku 24 jam, tampil untuk teman
+// yang sama-sama ada di grup buatan manual (bukan grup otomatis). Tidak dienkripsi ujung ke ujung: server dapat membacanya.
+model StatusHarian {
+  id          String           @id @default(cuid())
+  anggotaId   String           @unique
+  anggota     Anggota          @relation(fields: [anggotaId], references: [id], onDelete: Cascade)
+  teks        String
+  suasana     String? // satu emoji suasana hati
+  dibuatPada  DateTime         @default(now())
+  kedaluwarsa DateTime
+  komentar    StatusKomentar[]
+
+  @@index([kedaluwarsa])
+}
+
+model StatusKomentar {
+  id         String       @id @default(cuid())
+  statusId   String
+  status     StatusHarian @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  anggotaId  String
+  anggota    Anggota      @relation(fields: [anggotaId], references: [id], onDelete: Cascade)
+  teks       String
+  dibuatPada DateTime     @default(now())
+
+  @@index([statusId, dibuatPada])
+}
+
+enum StatusIzin {
+  MENUNGGU
+  DITERIMA
+  DITOLAK
+}
+
+// Izin obrolan 1:1: orang yang belum pernah bercakap harus meminta izin dulu. Satu baris per pasangan (aId < bId).
+model IzinObrolan {
+  aId        String
+  bId        String
+  pemintaId  String
+  status     StatusIzin @default(MENUNGGU)
+  dibuatPada DateTime   @default(now())
+  diubahPada DateTime   @updatedAt
+
+  @@id([aId, bId])
+  @@index([bId])
+}
+
+// Pengakuan riwayat percakapan lama: pasangan yang sudah pernah berbincang (sebelum aturan izin) diterima otomatis
+// bila KEDUA pihak mengaku (perangkat masing-masing menyimpan riwayatnya). aKlaim/bKlaim mengikuti urutan aId < bId.
+model RiwayatObrolan {
+  aId    String
+  bId    String
+  aKlaim Boolean @default(false)
+  bKlaim Boolean @default(false)
+
+  @@id([aId, bId])
+}
+
+// Pemblokiran 1:1: pesan dari/ke orang yang diblokir tidak diteruskan (diam-diam bagi yang diblokir).
+model Blokir {
+  pemblokirId String
+  diblokirId  String
+  dibuatPada  DateTime @default(now())
+
+  @@id([pemblokirId, diblokirId])
+  @@index([diblokirId])
 }
 
 // Grup obrolan. Kunci grup (Sender Key) dibuat dan dibagikan oleh anggota sendiri; server hanya meneruskan ciphertext.

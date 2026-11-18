@@ -5,6 +5,8 @@ import { ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingVi
 import type { Pesan } from '../server'
 import { awalNama, jam, labelHari, sehari, s } from '../gaya'
 import { buka, ringkas, type Lampiran } from '../konten'
+import { GeserPesan } from '../geser'
+import { BilahRekam } from '../suara'
 import { IsiLampiran, Penampil, pilihDokumen, pilihFotoVideo, ukuranTeks, type Terpilih } from '../lampiran'
 
 const EMOJI = (
@@ -25,7 +27,11 @@ function Centang({ p, total }: { p: Pesan; total: number }) {
 }
 
 /** Percakapan 1:1 maupun grup. Untuk grup, `namaPengirim` menampilkan nama di atas gelembung masuk. */
-export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang }: {
+export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang, geser, bilahIzin, saya }: {
+  /** Bila ada, menggantikan kolom ketik (mis. harus minta izin dulu). */
+  bilahIzin?: ReactNode
+  /** Id saya, untuk menandai reaksi milik sendiri. */
+  saya?: string
   judul: string
   subjudul?: string
   grup?: boolean
@@ -46,6 +52,8 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
   namaPengirim?: (id: string) => string
   /** Foto kecil (±28) pengirim, ditampilkan di samping tiap pesan masuk. */
   fotoPengirim?: (id: string) => ReactNode
+  /** Aksi geser pada pesan: kanan = balas, kiri = tombol Teruskan/Favorit/Hapus. */
+  geser?: { balas?: (p: Pesan) => void; teruskan: (p: Pesan) => void; favorit: (p: Pesan) => void; hapus: (p: Pesan) => void }
   /** Menu saat gelembung ditekan lama (mis. hapus pesan). */
   tekanLama?: (p: Pesan) => void
   /** Pesan yang sedang dibalas (ditampilkan di atas kolom ketik). */
@@ -85,6 +93,18 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
   const [terpilih, setTerpilih] = useState<Terpilih[]>([])
   const [progres, setProgres] = useState<string | null>(null)
   const [dibuka, setDibuka] = useState<Lampiran | null>(null)
+  const [merekam, setMerekam] = useState(false)
+  const kirimSuara = async (b: Terpilih) => {
+    setMerekam(false)
+    setProgres('Mengirim suara…')
+    try {
+      await kirimLampiran('', [b], () => {})
+    } catch (e) {
+      Alert.alert('Suara gagal dikirim', (e as Error).message || 'Periksa koneksi lalu coba lagi.')
+    } finally {
+      setProgres(null)
+    }
+  }
 
   const tambahBerkas = async (ambilPilihan: () => Promise<{ lolos: Terpilih[]; ditolak: string[] }>) => {
     try {
@@ -134,7 +154,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
           </View>
         </Pressable>
       </View>
-      <View style={{ flex: 1, backgroundColor: '#EFE7DD' }}>
+      <View style={{ flex: 1, backgroundColor: '#E6EDF5' }}>
         <View style={s.sistem}>
           <Text style={s.sistemTeks}>
             🔒 Pesan dienkripsi ujung-ke-ujung. Tidak ada pihak di luar {grup ? 'grup' : 'percakapan'} ini, termasuk server, yang dapat membacanya.
@@ -176,9 +196,9 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                     {k.balas ? (
                       <Pressable
                         onPress={() => lompat(k.balas!.r, k.balas!.d)}
-                        style={{ backgroundColor: 'rgba(0,0,0,0.06)', borderLeftWidth: 4, borderLeftColor: '#128C7E', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 4, minWidth: 140 }}
+                        style={{ backgroundColor: 'rgba(0,0,0,0.06)', borderLeftWidth: 4, borderLeftColor: '#1976D2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 4, minWidth: 140 }}
                       >
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#128C7E' }} numberOfLines={1}>{namaBalas ? namaBalas(k.balas.d) : 'Pesan'}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#1976D2' }} numberOfLines={1}>{namaBalas ? namaBalas(k.balas.d) : 'Pesan'}</Text>
                         <Text style={{ fontSize: 13, color: '#54656f' }} numberOfLines={2}>{k.balas.c || 'Pesan'}</Text>
                       </Pressable>
                     ) : null}
@@ -192,28 +212,51 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                         </View>
                       </Pressable>
                     ) : null}
-                    {k.lampiran?.length ? <IsiLampiran daftar={k.lampiran} buka={setDibuka} tekanLama={tekanLama ? () => tekanLama(item) : undefined} /> : null}
+                    {k.lampiran?.length ? <IsiLampiran daftar={k.lampiran} buka={setDibuka} ambil={ambil} tekanLama={tekanLama ? () => tekanLama(item) : undefined} /> : null}
                     {k.teks ? <Text style={[s.isi, k.lampiran?.length ? { marginTop: 4 } : null]}>{k.teks}</Text> : null}
                   </>
                 )}
+                {!item.dihapus && item.reaksi && Object.keys(item.reaksi).length ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                    {Object.entries(Object.values(item.reaksi).reduce<Record<string, number>>((a, e) => ({ ...a, [e]: (a[e] ?? 0) + 1 }), {})).map(([e, n]) => (
+                      <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 12, backgroundColor: saya && item.reaksi![saya] === e ? '#CFE3F8' : 'rgba(0,0,0,0.07)' }}>
+                        <Text style={{ fontSize: 14 }}>{e}</Text>
+                        {n > 1 ? <Text style={{ fontSize: 12, color: '#54656f', fontWeight: '600' }}>{n}</Text> : null}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 <Text style={s.meta}>
-                  {jam(item.waktu)}
+                  {item.favorit ? '★ ' : ''}{jam(item.waktu)}
                   {item.saya ? (item.status === 'gagal' ? '  ⚠ ketuk untuk kirim ulang' : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
                   {item.saya && item.status !== 'gagal' && (item.status === 'terkirim' || item.terima || item.baca) ? <Centang p={item} total={jumlahPenerima} /> : null}
                 </Text>
               </Pressable>
             )
             // Foto kecil si pengirim di sisi kiri gelembung masuk
-            if (item.saya || !fotoPengirim) return gelembung
-            return (
+            const isiBaris = item.saya || !fotoPengirim ? gelembung : (
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, alignSelf: 'flex-start', maxWidth: '92%' }}>
                 {fotoPengirim(item.dari)}
                 {gelembung}
               </View>
             )
+            if (!geser || item.dihapus || item.status === 'gagal') return isiBaris
+            return (
+              <GeserPesan
+                balas={geser.balas && item.ref ? () => geser.balas!(item) : undefined}
+                aksi={[
+                  { label: 'Teruskan', ikon: '↪', warna: '#1976D2', aksi: () => geser.teruskan(item) },
+                  { label: item.favorit ? 'Lepas' : 'Favorit', ikon: item.favorit ? '★' : '☆', warna: '#F5A623', aksi: () => geser.favorit(item) },
+                  { label: 'Hapus', ikon: '🗑', warna: '#E53935', aksi: () => geser.hapus(item) },
+                ]}
+              >
+                {isiBaris}
+              </GeserPesan>
+            )
           }}
         />
       </View>
+      {bilahIzin ? bilahIzin : merekam ? <BilahRekam kirim={kirimSuara} batal={() => setMerekam(false)} bawah={papan ? 8 : Math.max(insets.bottom, 8) + 2} /> : <>
       {emoji ? (
         <View style={{ height: 230, backgroundColor: '#F7F8FA', borderTopWidth: 0.5, borderTopColor: '#D1D7DB' }}>
           <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', padding: 6 }} keyboardShouldPersistTaps="always">
@@ -249,9 +292,9 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
       ) : null}
       {balasan ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#E3E6E8' }}>
-          <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: '#128C7E' }} />
+          <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: '#1976D2' }} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#128C7E' }} numberOfLines={1}>Membalas {namaBalas ? namaBalas(balasan.dari) : ''}</Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#1976D2' }} numberOfLines={1}>Membalas {namaBalas ? namaBalas(balasan.dari) : ''}</Text>
             <Text style={{ fontSize: 13.5, color: '#54656f' }} numberOfLines={1}>{ringkas(balasan.teks) || 'Pesan'}</Text>
           </View>
           <Pressable onPress={batalBalas} hitSlop={10} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#EEF0F1', alignItems: 'center', justifyContent: 'center' }}>
@@ -259,7 +302,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
           </Pressable>
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 8, paddingBottom: papan ? 8 : Math.max(insets.bottom, 8) + 2, backgroundColor: '#F4EFE8' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 8, paddingBottom: papan ? 8 : Math.max(insets.bottom, 8) + 2, backgroundColor: '#EEF2F7' }}>
         <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#fff', borderRadius: 26, paddingHorizontal: 6, minHeight: 52, elevation: 1 }}>
           <Pressable onPress={() => { Keyboard.dismiss(); setEmoji(v => !v) }} hitSlop={6} style={{ width: 40, height: 52, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontSize: 22, opacity: 0.55 }}>{emoji ? '⌨️' : '☺'}</Text>
@@ -273,10 +316,14 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
             <Text style={{ fontSize: 21, opacity: 0.55, transform: [{ rotate: '-45deg' }] }}>📎</Text>
           </Pressable>
         </View>
-        <Pressable style={[{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#128C7E', alignItems: 'center', justifyContent: 'center', elevation: 2 }, progres ? { opacity: 0.5 } : null]} onPress={kirimSemua}>
-          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 20, marginLeft: 2 }}>➤</Text>}
+        <Pressable
+          style={[{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#1976D2', alignItems: 'center', justifyContent: 'center', elevation: 2 }, progres ? { opacity: 0.5 } : null]}
+          onPress={!teks.trim() && !terpilih.length && !progres ? () => { Keyboard.dismiss(); setEmoji(false); setMerekam(true) } : kirimSemua}
+        >
+          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: !teks.trim() && !terpilih.length ? 22 : 20, marginLeft: !teks.trim() && !terpilih.length ? 0 : 2 }}>{!teks.trim() && !terpilih.length ? '🎤' : '➤'}</Text>}
         </Pressable>
       </View>
+      </>}
       {dibuka ? <Penampil l={dibuka} ambil={ambil} tutup={() => setDibuka(null)} /> : null}
     </KeyboardAvoidingView>
   )
