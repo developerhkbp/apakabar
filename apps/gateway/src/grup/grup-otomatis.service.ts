@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { PesanGateway } from '../pesan/pesan.gateway'
 
@@ -24,12 +24,36 @@ export type HasilRekonsiliasi = { grupBaru: number; masuk: number; keluar: numbe
  * Hanya anggota berstatus AKTIF yang dimasukkan ke grup (anggota lain masuk setelah disetujui).
  */
 @Injectable()
-export class GrupOtomatisService {
+export class GrupOtomatisService implements OnModuleInit {
   private readonly log = new Logger('GrupOtomatis')
   private berjalan: Promise<HasilRekonsiliasi> | null = null
   private ulang = false
 
   constructor(private readonly prisma: PrismaService, private readonly relay: PesanGateway) {}
+
+  /** Saat layanan menyala: pastikan admin utama sudah ada di semua grup yang sudah ada. */
+  onModuleInit() {
+    this.masukkanAdminUtama().catch((e) => this.log.warn(`Gagal memasukkan admin utama ke grup: ${(e as Error).message}`))
+  }
+
+  /** Admin utama otomatis menjadi anggota setiap grup (otomatis maupun buatan manual). */
+  async masukkanAdminUtama(): Promise<number> {
+    const utama = (await this.prisma.anggota.findMany({ where: { peran: 'ADMIN_UTAMA', status: 'AKTIF' }, select: { id: true } })).map((a) => a.id)
+    if (!utama.length) return 0
+    const grup = await this.prisma.grup.findMany({ select: { id: true, anggota: { where: { anggotaId: { in: utama } }, select: { anggotaId: true } } } })
+    let total = 0
+    for (const g of grup) {
+      const sudah = new Set(g.anggota.map((a) => a.anggotaId))
+      const tambah = utama.filter((id) => !sudah.has(id))
+      if (!tambah.length) continue
+      await this.prisma.anggotaGrup.createMany({ data: tambah.map((anggotaId) => ({ grupId: g.id, anggotaId })), skipDuplicates: true })
+      const semua = await this.prisma.anggotaGrup.findMany({ where: { grupId: g.id }, select: { anggotaId: true } })
+      this.relay.beritahu(semua.map((x) => x.anggotaId), { t: 'grupBerubah', grupId: g.id })
+      total += tambah.length
+    }
+    if (total) this.log.log(`Admin utama dimasukkan ke grup: ${total} keanggotaan baru`)
+    return total
+  }
 
   /** Satu putaran pada satu waktu; permintaan yang datang saat berjalan memicu satu putaran lagi setelahnya. */
   rekonsiliasi(namaBaru: Map<string, string> = new Map()): Promise<HasilRekonsiliasi> {
@@ -77,10 +101,12 @@ export class GrupOtomatisService {
       }
     }
 
+    const adminUtama = new Set((await this.prisma.anggota.findMany({ where: { peran: 'ADMIN_UTAMA', status: 'AKTIF' }, select: { id: true } })).map((a) => a.id))
     for (const [kunci, g] of peta) {
       const diinginkan = new Set(
         (await this.prisma.anggota.findMany({ where: { status: 'AKTIF', grupOtomatis: { has: kunci } }, select: { id: true } })).map((a) => a.id),
       )
+      for (const id of adminUtama) diinginkan.add(id) // admin utama selalu ikut
       const sekarang = new Set((await this.prisma.anggotaGrup.findMany({ where: { grupId: g.id }, select: { anggotaId: true } })).map((a) => a.anggotaId))
       const tambah = [...diinginkan].filter((id) => !sekarang.has(id))
       const keluar = [...sekarang].filter((id) => !diinginkan.has(id))
@@ -98,6 +124,7 @@ export class GrupOtomatisService {
       const sisa = await this.prisma.anggotaGrup.findMany({ where: { grupId: g.id }, select: { anggotaId: true } })
       this.relay.beritahu([...sisa.map((x) => x.anggotaId), ...keluar], { t: 'grupBerubah', grupId: g.id })
     }
+    await this.masukkanAdminUtama()
     if (hasil.grupBaru || hasil.masuk || hasil.keluar) this.log.log(`Grup otomatis: ${hasil.grupBaru} baru, ${hasil.masuk} masuk, ${hasil.keluar} keluar`)
     return hasil
   }

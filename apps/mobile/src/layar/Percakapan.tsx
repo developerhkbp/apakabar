@@ -27,9 +27,11 @@ function Centang({ p, total }: { p: Pesan; total: number }) {
 }
 
 /** Percakapan 1:1 maupun grup. Untuk grup, `namaPengirim` menampilkan nama di atas gelembung masuk. */
-export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang, geser, bilahIzin, saya }: {
+export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang, geser, bilahIzin, bilahAtas, saya }: {
   /** Bila ada, menggantikan kolom ketik (mis. harus minta izin dulu). */
   bilahIzin?: ReactNode
+  /** Bilah di bawah header, mis. deretan status teman. */
+  bilahAtas?: ReactNode
   /** Id saya, untuk menandai reaksi milik sendiri. */
   saya?: string
   judul: string
@@ -154,6 +156,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
           </View>
         </Pressable>
       </View>
+      {bilahAtas}
       <View style={{ flex: 1, backgroundColor: '#E6EDF5' }}>
         <View style={s.sistem}>
           <Text style={s.sistemTeks}>

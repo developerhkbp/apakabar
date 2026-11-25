@@ -19,7 +19,7 @@ import { ambilPratinjau, cariTautan } from './src/pratinjau'
 import { Percakapan } from './src/layar/Percakapan'
 import { Favorit } from './src/layar/Favorit'
 import { BarisPermintaan, BilahIzin, KartuBlokir } from './src/layar/Izin'
-import { BarisStatus, DetailStatus, KartuStatusSaya } from './src/layar/Status'
+import { BarisStatus, BarisStatusRingkas, DetailStatus, KartuStatusSaya } from './src/layar/Status'
 import { Teruskan } from './src/layar/Teruskan'
 import { Avatar, setTokenFoto } from './src/avatar'
 import { Profil } from './src/layar/Profil'
@@ -526,6 +526,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         bukaInfo={() => setLayar({ j: 'profil', jenis: 'anggota', anggota: lawan, balik: layar })}
         judul={lawan.nama}
         saya={sesi.id}
+        bilahAtas={<BarisStatusRingkas tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
         bilahIzin={izin[lawan.id] && izin[lawan.id] !== 'IZIN' ? (
           <BilahIzin
             nama={lawan.nama} status={izin[lawan.id]} sibuk={sibukIzin}
@@ -571,6 +572,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         avatar={<Avatar jenis="grup" id={g.id} v={grup.find(x => x.id === g.id)?.fotoV} nama={g.nama} ukuran={36} />}
         judul={g.nama}
         saya={sesi.id}
+        bilahAtas={<BarisStatusRingkas tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
         subjudul={`${g.jumlah} anggota`}
         grup
         daftar={pesan[k] ?? []}

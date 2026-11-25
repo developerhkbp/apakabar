@@ -197,6 +197,49 @@ export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusH
   )
 }
 
+/** Versi ringkas BarisStatus untuk di atas layar percakapan: lingkaran foto kecil, satu per orang. */
+export function BarisStatusRingkas({ daftar, anggota, buka, tambah }: { daftar: StatusHarian[]; anggota: Anggota[]; buka: (id: string) => void; tambah: (teks: string, suasana?: string) => Promise<void> }) {
+  const [menulis, setMenulis] = useState(false)
+  const orang = useMemo(() => {
+    const m = new Map<string, StatusHarian[]>()
+    for (const x of daftar) { const l = m.get(x.anggotaId); if (l) l.push(x); else m.set(x.anggotaId, [x]) }
+    return [...m.values()].map(l => l.sort((a, b) => b.dibuatPada.localeCompare(a.dibuatPada)))
+  }, [daftar])
+  const fotoV = useMemo(() => new Map(anggota.map(a => [a.id, a.fotoV])), [anggota])
+  return (
+    <View style={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: "#e4e6e7", paddingVertical: 8 }}>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        data={orang}
+        keyExtractor={l => l[0].anggotaId}
+        contentContainerStyle={{ paddingHorizontal: 12, gap: 14 }}
+        ListHeaderComponent={
+          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tambah status" style={{ alignItems: 'center', width: 58, marginRight: 14 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderStyle: 'dashed', borderColor: HIJAU, backgroundColor: '#EAF2FC', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: HIJAU_TUA, fontSize: 24, marginTop: -2 }}>＋</Text>
+            </View>
+            <Text style={{ fontSize: 11, color: HIJAU_TUA, marginTop: 3 }} numberOfLines={1}>Status</Text>
+          </Pressable>
+        }
+        renderItem={({ item: l }) => {
+          const x = l[0]
+          return (
+            <Pressable onPress={() => buka(x.id)} style={{ alignItems: 'center', width: 58 }}>
+              <View style={{ padding: 2, borderRadius: 26, borderWidth: 2, borderColor: x.saya ? HIJAU : HIJAU_TUA }}>
+                <Avatar jenis="anggota" id={x.anggotaId} v={fotoV.get(x.anggotaId)} nama={x.nama} ukuran={40} />
+              </View>
+              <Text style={{ fontSize: 11, color: '#54656f', marginTop: 3 }} numberOfLines={1}>{x.saya ? 'Saya' : x.nama.split(' ')[0]}</Text>
+            </Pressable>
+          )
+        }}
+      />
+      <PenyusunStatus tampil={menulis} tutup={() => setMenulis(false)} simpan={tambah} />
+    </View>
+  )
+}
+
 /** Satu status beserta komentarnya. */
 export function DetailStatus({ status, saudara, pilih, anggota, saya, muat, kirim, hapusKomentar, hapusStatus, kembali, berubah }: {
   status: StatusHarian

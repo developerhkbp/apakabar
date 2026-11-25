@@ -44,7 +44,8 @@ export class GrupService {
 
   async buat(pembuat: Pengguna, nama: string, anggotaIds: string[], adminIds: string[]) {
     if (!this.adalahAdminAplikasi(pembuat)) throw new ForbiddenException('Hanya admin yang boleh membuat grup')
-    const semua = await this.idAktif([pembuat.id, ...anggotaIds, ...adminIds])
+    const utama = (await this.prisma.anggota.findMany({ where: { peran: 'ADMIN_UTAMA', status: 'AKTIF' }, select: { id: true } })).map((a) => a.id)
+    const semua = await this.idAktif([pembuat.id, ...anggotaIds, ...adminIds, ...utama]) // admin utama selalu ikut
     if (semua.length > MAKS_ANGGOTA_GRUP) throw new BadRequestException(`Anggota grup maksimal ${MAKS_ANGGOTA_GRUP}`)
     const admin = new Set([pembuat.id, ...adminIds])
     const g = await this.prisma.grup.create({
@@ -136,6 +137,8 @@ export class GrupService {
     if (anggotaId !== p.id) await this.pastikanPengelola(grupId, p)
     const k = await this.prisma.anggotaGrup.findUnique({ where: { grupId_anggotaId: { grupId, anggotaId } } })
     if (!k) throw new NotFoundException('Anggota tidak ada di grup ini')
+    const sasaran = await this.prisma.anggota.findUnique({ where: { id: anggotaId }, select: { peran: true } })
+    if (sasaran?.peran === 'ADMIN_UTAMA') throw new ForbiddenException('Admin utama selalu menjadi anggota semua grup')
     if (k.peran === 'ADMIN_GRUP') await this.pastikanAdaAdminLain(grupId, anggotaId)
     await this.prisma.$transaction([
       this.prisma.anggotaGrup.delete({ where: { grupId_anggotaId: { grupId, anggotaId } } }),
