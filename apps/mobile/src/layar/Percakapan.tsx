@@ -182,7 +182,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
               <Pressable
                 style={[s.gelembung, item.saya ? s.keluar : s.masuk, sorot === item.id ? { backgroundColor: '#FFF3B0' } : null]}
                 onLongPress={tekanLama && !item.dihapus ? () => tekanLama(item) : undefined}
-                onPress={item.saya && item.status === 'gagal' && kirimUlang ? () => Alert.alert('Pesan belum terkirim', 'Kirim ulang pesan ini?', [
+                onPress={item.saya && item.status === 'gagal' && !item.gagalJaringan && kirimUlang ? () => Alert.alert('Pesan belum terkirim', 'Kirim ulang pesan ini?', [
                   { text: 'Batal', style: 'cancel' },
                   { text: 'Kirim ulang', onPress: () => kirimUlang(item) },
                 ]) : undefined}
@@ -228,7 +228,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                 ) : null}
                 <Text style={s.meta}>
                   {item.favorit ? '★ ' : ''}{jam(item.waktu)}
-                  {item.saya ? (item.status === 'gagal' ? '  ⚠ ketuk untuk kirim ulang' : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
+                  {item.saya ? (item.status === 'gagal' ? (item.gagalJaringan ? '  🕓' : '  ⚠ ketuk untuk kirim ulang') : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
                   {item.saya && item.status !== 'gagal' && (item.status === 'terkirim' || item.terima || item.baca) ? <Centang p={item} total={jumlahPenerima} /> : null}
                 </Text>
               </Pressable>

@@ -153,6 +153,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const [cari, setCari] = useState('')
   const [tersambung, setTersambung] = useState(false)
   const obrolan = useRef<Obrolan | null>(null)
+  const sedangUlang = useRef(new Set<string>()) // id pesan yang sedang dikirim ulang
+  const tersambungRef = useRef(false)
+  const pesanRef = useRef<Riwayat>({})
   const layarRef = useRef<Layar>(layar)
   layarRef.current = layar
   // Tombol back bawaan Android mengikuti tombol kembali di aplikasi: tutup menu dulu, lalu mundur satu layar.
@@ -240,23 +243,31 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   setTemaAdmin(adalahAdmin) // header emas untuk admin (dipasang sebelum layar anak dirender)
   useEffect(() => () => setTemaAdmin(false), [])
 
-  const tambah = (kunci: string, p: Pesan) => setPesan(x => ({ ...x, [kunci]: [...(x[kunci] ?? []), p] }))
+  const tambah = (kunci: string, p: Pesan) => setPesan(x => {
+    const lama = x[kunci] ?? []
+    const urut = lama.length > 0 && lama[lama.length - 1].waktu > p.waktu // hanya bila pesan lama dikirim ulang
+    return { ...x, [kunci]: urut ? [...lama, p].sort((a, b) => a.waktu - b.waktu) : [...lama, p] }
+  })
   const hapusLokal = (kunci: string, id: string) => setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).filter(p => p.id !== id) }))
 
   /** Mengirim isi ke percakapan (kunci orang atau `g:<id>`). Gagal → pesan ditandai ⚠ dan bisa dikirim ulang. */
-  const kirimKe = async (kunci: string, isi: string, diam = false) => {
+  const kirimKe = async (kunci: string, isi: string, diam = false, waktuAsli?: number) => {
     try {
       const o = obrolan.current!
+      let hasil: Pesan
       if (kunci.startsWith('g:')) {
         const d: DetailGrup = await detailGrup(sesi.token, kunci.slice(2)) // daftar anggota & kunci grup terbaru
-        tambah(kunci, await o.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi))
+        hasil = await o.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi)
       } else {
-        tambah(kunci, await o.kirim(kunci, isi))
+        hasil = await o.kirim(kunci, isi)
       }
+      tambah(kunci, waktuAsli ? { ...hasil, waktu: waktuAsli } : hasil)
     } catch (e) {
-      const jaringan = e instanceof GalatApi && e.status === 0
-      if (!diam) Alert.alert('Pesan belum terkirim', ((e as Error)?.message || String(e)) + ' Ketuk pesan bertanda ⚠ untuk mengirim ulang.')
-      tambah(kunci, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: Date.now(), saya: true, status: 'gagal', gagalJaringan: jaringan })
+      // Gangguan jaringan/koneksi: pesan tampil seperti biasa (jam), tanpa peringatan, dan dikirim ulang
+      // sendiri di latar belakang sampai berhasil. Hanya penolakan lain (mis. diblokir) yang dimunculkan.
+      const jaringan = !(e instanceof GalatApi) || e.status === 0 || !tersambungRef.current
+      if (!jaringan && !diam) Alert.alert('Pesan belum terkirim', ((e as Error)?.message || String(e)) + ' Ketuk pesan bertanda ⚠ untuk mengirim ulang.')
+      tambah(kunci, { id: String(Date.now()), dari: sesi.id, teks: isi, waktu: waktuAsli ?? Date.now(), saya: true, status: 'gagal', gagalJaringan: jaringan })
     }
   }
   /** Bila ada pesan yang sedang dibalas di percakapan ini, sisipkan kutipannya lalu tutup bilah balasan. */
@@ -267,8 +278,14 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     return hasil
   }
   const kirimUlang = async (kunci: string, p: Pesan, diam = false) => {
-    hapusLokal(kunci, p.id)
-    await kirimKe(kunci, p.teks, diam)
+    if (sedangUlang.current.has(p.id)) return // jangan kirim ganda bila percobaan sebelumnya masih berjalan
+    sedangUlang.current.add(p.id)
+    try {
+      hapusLokal(kunci, p.id)
+      await kirimKe(kunci, p.teks, diam, p.waktu)
+    } finally {
+      sedangUlang.current.delete(p.id)
+    }
   }
   /** Menu hapus: untuk diri sendiri selalu ada; untuk semua hanya bila berwenang. */
   const menuHapus = (kunci: string, p: Pesan, untukSemua?: { keterangan: string; jalankan: () => void }) =>
@@ -389,13 +406,30 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
 
   const sesiSaya = { ...sesi, peran }
 
-  // Kirim ulang otomatis pesan yang gagal karena jaringan begitu koneksi pulih.
-  useEffect(() => {
-    if (!tersambung || !dimuat) return
-    const tertunda = Object.entries(pesan).flatMap(([kunci, daftar]) => daftar.filter(p => p.saya && p.status === 'gagal' && p.gagalJaringan).map(p => [kunci, p] as const))
-    for (const [kunci, p] of tertunda) kirimUlang(kunci, p, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Pesan tertunda (gangguan jaringan) dikirim ulang otomatis: begitu koneksi pulih, saat aplikasi aktif
+  // kembali, dan berkala dengan jeda yang makin panjang (4 dtk → maks. 30 dtk) selama masih ada yang tertunda.
+  tersambungRef.current = tersambung
+  pesanRef.current = pesan
+  const adaTertunda = useMemo(() => Object.values(pesan).some(d => d.some(p => p.saya && p.status === 'gagal' && p.gagalJaringan)), [pesan])
+  const kirimTertunda = () => {
+    if (!tersambungRef.current) return
+    const urut = Object.entries(pesanRef.current)
+      .flatMap(([kunci, daftar]) => daftar.filter(p => p.saya && p.status === 'gagal' && p.gagalJaringan).map(p => [kunci, p] as const))
+      .sort((a, b) => a[1].waktu - b[1].waktu) // yang paling lama lebih dulu agar urutan tetap
+    ;(async () => { for (const [kunci, p] of urut) await kirimUlang(kunci, p, true) })()
+  }
+  useEffect(() => { if (tersambung && dimuat) kirimTertunda() // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tersambung, dimuat])
+  useEffect(() => {
+    if (!dimuat || !adaTertunda) return
+    let jeda = 4000
+    let t: ReturnType<typeof setTimeout>
+    const putar = () => { kirimTertunda(); jeda = Math.min(jeda * 1.6, 30_000); t = setTimeout(putar, jeda) }
+    t = setTimeout(putar, jeda)
+    const l = AppState.addEventListener('change', st => { if (st === 'active') kirimTertunda() })
+    return () => { clearTimeout(t); l.remove() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimuat, adaTertunda])
 
   // Izin kirim pesan dengan lawan bicara di percakapan yang terbuka.
   const idOrang = layar.j === 'orang' ? layar.anggota.id : null
