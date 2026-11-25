@@ -1,8 +1,8 @@
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 import {
-  adminBlokir, adminBukaBlokir, adminDaftar, adminDetail, adminKeluarkan, adminRingkasan, adminSetujui, adminSetujuiBanyak,
+  adminAturWajibIzin, adminBlokir, adminBukaBlokir, adminDaftar, adminDetail, adminKeluarkan, adminPengaturan, adminRingkasan, adminSetujui, adminSetujuiBanyak,
   adminTambah, adminUbah, adminUbahPeran, type AnggotaAdmin, type DetailAnggotaAdmin, type Sesi, type StatusAnggota,
 } from '../server'
 import { awalNama, HIJAU, HIJAU_TUA, MERAH, s } from '../gaya'
@@ -32,7 +32,15 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
   const [diubah, setDiubah] = useState<AnggotaAdmin | null>(null)
   const [rinci, setRinci] = useState<AnggotaAdmin | null>(null)
   const [terbukaId, setTerbukaId] = useState<string | null>(null)
+  const [wajibIzin, setWajibIzin] = useState<boolean | null>(null)
   const permintaan = useRef(0)
+
+  useEffect(() => { adminPengaturan(sesi.token).then(p => setWajibIzin(p.wajibIzin)).catch(() => undefined) }, [sesi.token])
+  const gantiWajibIzin = (nilai: boolean) => {
+    const lama = wajibIzin
+    setWajibIzin(nilai)
+    adminAturWajibIzin(sesi.token, nilai).catch(e => { setWajibIzin(lama); Alert.alert('Tidak berhasil', (e as Error).message) })
+  }
 
   const muat = useCallback(async (hal = 1) => {
     const no = ++permintaan.current
@@ -141,6 +149,17 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
       </View>
       {diubah ? <FormUbah key={diubah.id} token={sesi.token} a={diubah} batal={() => setDiubah(null)} selesai={() => { setDiubah(null); muat(1) }} /> : null}
       {formTambah ? <FormTambah token={sesi.token} selesai={() => { setFormTambah(false); setTab('AKTIF'); muat(1) }} /> : null}
+      {utama && wajibIzin !== null ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#F7F8F8', borderBottomWidth: 1, borderColor: '#e4e6e7' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#111B21' }}>Wajib minta izin dulu</Text>
+            <Text style={{ fontSize: 12, color: '#667781', marginTop: 2 }}>
+              {wajibIzin ? 'Pengguna harus minta izin sebelum memulai percakapan pribadi.' : 'Pengguna langsung bisa memulai percakapan pribadi. Blokir tetap berlaku.'}
+            </Text>
+          </View>
+          <Switch value={wajibIzin} onValueChange={gantiWajibIzin} trackColor={{ true: HIJAU, false: '#C5CDD3' }} thumbColor={wajibIzin ? HIJAU_TUA : '#f4f4f4'} />
+        </View>
+      ) : null}
       <View style={s.tab}>
         {TAB.map(t => (
           <Pressable key={t.status} style={[s.tabItem, tab === t.status && s.tabAktif]} onPress={() => { if (t.status === tab) return; setData([]); setTotal(0); setDimuat(false); setTab(t.status) }}>

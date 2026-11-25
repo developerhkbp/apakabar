@@ -176,6 +176,8 @@ export const versiFotoSaya = (t: string, id?: string) => api<{ fotoV: number; fo
 export const daftarAnggota = (token: string) => api<Anggota[]>('GET', '/anggota', undefined, token).then(d => { daftarkanFotoUrl(d); return d })
 
 // --- Admin aplikasi ---
+export const adminPengaturan = (t: string) => api<{ wajibIzin: boolean }>('GET', '/admin/pengaturan', undefined, t)
+export const adminAturWajibIzin = (t: string, wajibIzin: boolean) => api<{ wajibIzin: boolean }>('PUT', '/admin/pengaturan', { wajibIzin }, t)
 export const adminRingkasan = (t: string) => api<Record<StatusAnggota, number>>('GET', '/admin/ringkasan', undefined, t)
 export const adminDaftar = (t: string, status?: StatusAnggota, q?: string, halaman = 1) =>
   api<{ total: number; halaman: number; perHalaman: number; data: AnggotaAdmin[] }>(

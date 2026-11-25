@@ -83,6 +83,13 @@ enum StatusIzin {
 }
 
 // Izin obrolan 1:1: orang yang belum pernah bercakap harus meminta izin dulu. Satu baris per pasangan (aId < bId).
+// Pengaturan global yang diubah admin utama (mis. wajibIzin = "1" / "0").
+model Pengaturan {
+  kunci      String   @id
+  nilai      String
+  diubahPada DateTime @default(now()) @updatedAt
+}
+
 model IzinObrolan {
   aId        String
   bId        String

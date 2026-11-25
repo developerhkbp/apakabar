@@ -11,6 +11,30 @@ const pasangan = (x: string, y: string) => (x < y ? { aId: x, bId: y } : { aId: 
 export class KontakService {
   constructor(private readonly prisma: PrismaService, private readonly peristiwa: PeristiwaService) {}
 
+  private wajibIzinCache: { nilai: boolean; sampai: number } | null = null
+
+  /** Apakah pengguna harus minta izin dulu sebelum memulai percakapan 1:1 (default: ya). Disimpan 10 detik di memori. */
+  async wajibIzin(): Promise<boolean> {
+    if (this.wajibIzinCache && this.wajibIzinCache.sampai > Date.now()) return this.wajibIzinCache.nilai
+    const p = await this.prisma.pengaturan.findUnique({ where: { kunci: 'wajibIzin' }, select: { nilai: true } })
+    const nilai = p?.nilai !== '0'
+    this.wajibIzinCache = { nilai, sampai: Date.now() + 10_000 }
+    return nilai
+  }
+
+  async aturWajibIzin(nilai: boolean) {
+    await this.prisma.pengaturan.upsert({
+      where: { kunci: 'wajibIzin' },
+      create: { kunci: 'wajibIzin', nilai: nilai ? '1' : '0' },
+      update: { nilai: nilai ? '1' : '0' },
+    })
+    this.wajibIzinCache = { nilai, sampai: Date.now() + 10_000 }
+    // semua perangkat yang sedang online memuat ulang status izinnya
+    const ids = (await this.prisma.anggota.findMany({ where: { status: 'AKTIF' }, select: { id: true } })).map((a) => a.id)
+    this.beritahu(ids, { t: 'izinBerubah' })
+    return { wajibIzin: nilai }
+  }
+
   private beritahu(ids: string[], data: unknown) {
     this.peristiwa.emit('beritahu', ids, data)
   }
@@ -36,6 +60,7 @@ export class KontakService {
     if (blokir) return 'diam'
     const izin = await this.prisma.izinObrolan.findUnique({ where: { aId_bId: pasangan(dari, ke) }, select: { status: true } })
     if (izin?.status === 'DITERIMA') return 'ya'
+    if (!(await this.wajibIzin())) return 'ya'
     if (kunciGrup) {
       const bersama = await this.prisma.anggotaGrup.findFirst({
         where: { anggotaId: dari, grup: { anggota: { some: { anggotaId: ke } } } },
@@ -53,8 +78,9 @@ export class KontakService {
       this.prisma.izinObrolan.findUnique({ where: { aId_bId: pasangan(saya, id) }, select: { status: true, pemintaId: true } }),
     ])
     if (sayaBlokir) return { status: 'DIBLOKIR_SAYA' }
+    if (izin?.status === 'DITERIMA') return { status: 'IZIN' }
+    if (!(await this.wajibIzin())) return { status: 'IZIN' }
     if (!izin) return { status: 'BELUM' }
-    if (izin.status === 'DITERIMA') return { status: 'IZIN' }
     // ditolak atau diblokir lawan tidak diberitahukan: pemohon hanya melihat "menunggu"
     if (izin.pemintaId === saya) return { status: 'SAYA_MINTA' }
     return { status: izin.status === 'MENUNGGU' ? 'DIA_MINTA' : 'BELUM' }

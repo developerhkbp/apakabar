@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common'
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 import { AdminGuard, JwtAuthGuard, Pengguna, PenggunaIni } from '../auth/jwt-auth.guard'
 import { PrismaService } from '../prisma/prisma.service'
 import { GrupService } from '../grup/grup.service'
@@ -7,6 +7,7 @@ import { PesanGateway } from '../pesan/pesan.gateway'
 import { normalisasiNomor } from '../common/nomor'
 import { GrupOtomatisService } from '../grup/grup-otomatis.service'
 import { SinkronService } from '../sinkron/sinkron.service'
+import { KontakService } from '../kontak/kontak.service'
 
 type StatusAnggota = 'DIUNDANG' | 'MENUNGGU' | 'AKTIF' | 'DITANGGUHKAN'
 const STATUS: StatusAnggota[] = ['DIUNDANG', 'MENUNGGU', 'AKTIF', 'DITANGGUHKAN']
@@ -30,6 +31,10 @@ class PeranDto {
   @IsIn(['USER', 'ADMIN'], { message: 'Peran tidak valid' })
   peran: 'USER' | 'ADMIN'
 }
+class PengaturanDto {
+  @IsBoolean({ message: 'Nilai harus benar atau salah' })
+  wajibIzin: boolean
+}
 class QueryDto {
   @IsOptional() @IsIn(STATUS) status?: StatusAnggota
   @IsOptional() @IsString() q?: string
@@ -49,6 +54,7 @@ export class AdminController {
     private readonly relay: PesanGateway,
     private readonly otomatis: GrupOtomatisService,
     private readonly sinkron: SinkronService,
+    private readonly kontak: KontakService,
   ) {}
 
   /** Anggota yang baru aktif langsung dimasukkan ke grup otomatis yang berhak diikutinya. */
@@ -74,6 +80,18 @@ export class AdminController {
     if (this.sinkron.berjalan) throw new BadRequestException('Sinkronisasi sedang berjalan')
     void this.sinkron.jalankan()
     return { dimulai: true }
+  }
+
+  /** Pengaturan global. Melihat boleh admin; mengubah hanya admin utama. */
+  @Get('pengaturan')
+  async pengaturan() {
+    return { wajibIzin: await this.kontak.wajibIzin() }
+  }
+
+  @Put('pengaturan')
+  async ubahPengaturan(@PenggunaIni() p: Pengguna, @Body() d: PengaturanDto) {
+    this.hanyaUtama(p)
+    return this.kontak.aturWajibIzin(d.wajibIzin)
   }
 
   @Get('ringkasan')
