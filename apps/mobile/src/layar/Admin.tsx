@@ -5,7 +5,8 @@ import {
   adminBlokir, adminBukaBlokir, adminDaftar, adminDetail, adminKeluarkan, adminRingkasan, adminSetujui, adminSetujuiBanyak,
   adminTambah, adminUbah, adminUbahPeran, type AnggotaAdmin, type DetailAnggotaAdmin, type Sesi, type StatusAnggota,
 } from '../server'
-import { awalNama, s } from '../gaya'
+import { awalNama, HIJAU, HIJAU_TUA, MERAH, s } from '../gaya'
+import { BarisGeser, type AksiGeser } from './BarisGeser'
 
 const TAB: { status: StatusAnggota; label: string }[] = [
   { status: 'MENUNGGU', label: 'Menunggu' },
@@ -30,6 +31,7 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
   const [formTambah, setFormTambah] = useState(false)
   const [diubah, setDiubah] = useState<AnggotaAdmin | null>(null)
   const [rinci, setRinci] = useState<AnggotaAdmin | null>(null)
+  const [terbukaId, setTerbukaId] = useState<string | null>(null)
   const permintaan = useRef(0)
 
   const muat = useCallback(async (hal = 1) => {
@@ -62,66 +64,57 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
   const konfirmasi = (judul: string, isi: string, teksYa: string, fn: () => Promise<unknown>) =>
     Alert.alert(judul, isi, [{ text: 'Batal', style: 'cancel' }, { text: teksYa, style: 'destructive', onPress: () => jalankan(fn) }])
 
+  const aksiAnggota = (a: AnggotaAdmin): AksiGeser[] => {
+    const daftar: AksiGeser[] = []
+    if (a.status !== 'DIUNDANG' && a.peran !== 'ADMIN_UTAMA' && a.id !== sesi.id) {
+      if (a.status === 'MENUNGGU') daftar.push({ label: 'Setujui', warna: HIJAU_TUA, onPress: () => jalankan(() => adminSetujui(sesi.token, a.id)) })
+      if (a.status === 'DITANGGUHKAN') {
+        daftar.push({ label: 'Buka blokir', warna: HIJAU_TUA, onPress: () => jalankan(() => adminBukaBlokir(sesi.token, a.id)) })
+      } else if (a.peran === 'USER' || utama) {
+        daftar.push({
+          label: 'Blokir', warna: '#F57C00',
+          onPress: () => konfirmasi('Blokir anggota?', `${a.nama} tidak bisa masuk lagi dan dikeluarkan dari semua grup. Blokir bisa dibuka kembali.`, 'Blokir', () => adminBlokir(sesi.token, a.id)),
+        })
+      }
+      if (utama && a.status === 'AKTIF') {
+        daftar.push({ label: a.peran === 'ADMIN' ? 'Cabut admin' : 'Jadikan admin', warna: '#6B7C93', onPress: () => jalankan(() => adminUbahPeran(sesi.token, a.id, a.peran === 'ADMIN' ? 'USER' : 'ADMIN')) })
+      }
+      if (utama) {
+        daftar.push({
+          label: 'Keluarkan', warna: MERAH,
+          onPress: () => konfirmasi('Keluarkan dari ApaKabaR?', `${a.nama} dihapus permanen beserta keanggotaan grupnya. Tidak bisa dibatalkan.`, 'Keluarkan', () => adminKeluarkan(sesi.token, a.id)),
+        })
+      }
+    }
+    if (a.peran === 'USER' || (utama && a.peran === 'ADMIN')) {
+      daftar.unshift({ label: 'Ubah', warna: HIJAU, onPress: () => { setFormTambah(false); setDiubah(a) } })
+    }
+    return daftar
+  }
+
   const baris = (a: AnggotaAdmin) => (
-    <Pressable style={s.barisObrolan} onPress={() => setRinci(a)}>
-      <View style={s.avatar}><Text style={s.avatarTeks}>{awalNama(a.nama)}</Text></View>
-      <View style={{ flex: 1 }}>
-        <Text style={s.nama}>{a.nama}</Text>
-        <Text style={s.cuplikan}>{tampilNomor(a.nomorHp)}</Text>
-        {a.peran !== 'USER' ? (
-          <View style={s.lencanaPeran}><Text style={s.lencanaPeranTeks}>{a.peran === 'ADMIN_UTAMA' ? 'Admin utama' : 'Admin'}</Text></View>
-        ) : null}
-        {a.status === 'DIUNDANG' ? (
-          <Text style={{ fontSize: 12, color: '#8696A0', marginTop: 4 }}>Belum pernah masuk ke aplikasi. Tidak ada tindakan yang diperlukan.</Text>
-        ) : null}
-        {a.status !== 'DIUNDANG' && a.peran !== 'ADMIN_UTAMA' && a.id !== sesi.id ? (
-          <View style={s.aksiBaris}>
-            {a.status === 'MENUNGGU' ? (
-              <Pressable style={[s.aksi, s.aksiPenuh]} onPress={() => jalankan(() => adminSetujui(sesi.token, a.id))}>
-                <Text style={[s.aksiTeks, s.aksiPenuhTeks]}>Setujui</Text>
-              </Pressable>
-            ) : null}
-            {a.status === 'DITANGGUHKAN' ? (
-              <Pressable style={s.aksi} onPress={() => jalankan(() => adminBukaBlokir(sesi.token, a.id))}>
-                <Text style={s.aksiTeks}>Buka blokir</Text>
-              </Pressable>
-            ) : (
-              (a.peran === 'USER' || utama) && (
-                <Pressable
-                  style={[s.aksi, s.aksiBahaya]}
-                  onPress={() => konfirmasi('Blokir anggota?', `${a.nama} tidak bisa masuk lagi dan dikeluarkan dari semua grup. Blokir bisa dibuka kembali.`, 'Blokir', () => adminBlokir(sesi.token, a.id))}
-                >
-                  <Text style={[s.aksiTeks, s.aksiBahayaTeks]}>Blokir</Text>
-                </Pressable>
-              )
-            )}
-            {utama && a.status === 'AKTIF' ? (
-              <Pressable
-                style={s.aksi}
-                onPress={() => jalankan(() => adminUbahPeran(sesi.token, a.id, a.peran === 'ADMIN' ? 'USER' : 'ADMIN'))}
-              >
-                <Text style={s.aksiTeks}>{a.peran === 'ADMIN' ? 'Cabut admin' : 'Jadikan admin'}</Text>
-              </Pressable>
-            ) : null}
-            {utama ? (
-              <Pressable
-                style={[s.aksi, s.aksiBahaya]}
-                onPress={() => konfirmasi('Keluarkan dari ApaKabaR?', `${a.nama} dihapus permanen beserta keanggotaan grupnya. Tidak bisa dibatalkan.`, 'Keluarkan', () => adminKeluarkan(sesi.token, a.id))}
-              >
-                <Text style={[s.aksiTeks, s.aksiBahayaTeks]}>Keluarkan</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-        {a.peran === 'USER' || (utama && a.peran === 'ADMIN') ? (
-          <View style={s.aksiBaris}>
-            <Pressable style={s.aksi} onPress={() => { setFormTambah(false); setDiubah(a) }}>
-              <Text style={s.aksiTeks}>Ubah nama / nomor</Text>
-            </Pressable>
-          </View>
-        ) : null}
+    <BarisGeser
+      aksi={aksiAnggota(a)}
+      terbuka={terbukaId === a.id}
+      onBuka={() => setTerbukaId(a.id)}
+      onTutup={() => setTerbukaId(x => (x === a.id ? null : x))}
+      onPress={() => setRinci(a)}
+    >
+      <View style={s.barisObrolan}>
+        <View style={s.avatar}><Text style={s.avatarTeks}>{awalNama(a.nama)}</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.nama}>{a.nama}</Text>
+          <Text style={s.cuplikan}>{tampilNomor(a.nomorHp)}</Text>
+          {a.peran !== 'USER' ? (
+            <View style={s.lencanaPeran}><Text style={s.lencanaPeranTeks}>{a.peran === 'ADMIN_UTAMA' ? 'Admin utama' : 'Admin'}</Text></View>
+          ) : null}
+          {a.status === 'DIUNDANG' ? (
+            <Text style={{ fontSize: 12, color: '#8696A0', marginTop: 4 }}>Belum pernah masuk ke aplikasi.</Text>
+          ) : null}
+        </View>
+        {aksiAnggota(a).length ? <Text style={{ color: '#B0BAC2', fontSize: 18 }}>‹</Text> : null}
       </View>
-    </Pressable>
+    </BarisGeser>
   )
 
   if (rinci) {
@@ -167,6 +160,8 @@ export function Admin({ sesi, kembali }: { sesi: Sesi; kembali: () => void }) {
       {galat ? <Text style={s.galat}>{galat}</Text> : null}
       <FlatList
         data={data}
+        extraData={terbukaId}
+        onScrollBeginDrag={() => setTerbukaId(null)}
         keyExtractor={a => a.id}
         renderItem={({ item }) => baris(item)}
         onEndReached={() => { if (dimuat && !sibuk && data.length > 0 && data.length < total) muat(halaman + 1) }}
