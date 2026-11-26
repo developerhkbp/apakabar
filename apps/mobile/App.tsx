@@ -155,6 +155,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const [sunting, setSunting] = useState<{ kunci: string; p: Pesan } | null>(null)
   const [cari, setCari] = useState('')
   const [tersambung, setTersambung] = useState(false)
+  // Hook harus di atas semua return dini (mis. layar Admin), kalau tidak React crash
+  const [geserBuka, setGeserBuka] = useState<string | null>(null)
   const obrolan = useRef<Obrolan | null>(null)
   const sedangUlang = useRef(new Set<string>()) // id pesan yang sedang dikirim ulang
   const tersambungRef = useRef(false)
@@ -853,7 +855,6 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     ...(lainnya.length > BATAS_CARI ? [{ t: 'seksi', label: `…dan ${lainnya.length - BATAS_CARI} lainnya. Persempit pencarian.` } as Baris] : []),
   ]
 
-  const [geserBuka, setGeserBuka] = useState<string | null>(null)
   const hapusObrolan = (kunci: string, judul: string, grupIni: boolean) => Alert.alert(
     grupIni ? `Hapus pesan di ${judul}?` : `Hapus percakapan dengan ${judul}?`,
     'Pesan hanya dihapus dari perangkat ini. Pesan baru tetap akan masuk.',
