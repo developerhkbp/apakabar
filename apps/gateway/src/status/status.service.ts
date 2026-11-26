@@ -3,6 +3,8 @@ import { Pengguna } from '../auth/jwt-auth.guard'
 import { KontakService } from '../kontak/kontak.service'
 import { PrismaService } from '../prisma/prisma.service'
 
+/** Grup bawaan seluruh pelayan; berada di grup ini saja tidak membuat status saling terlihat. */
+const KUNCI_GRUP_PELAYAN = 'PELAYAN'
 const MASA_BERLAKU_MS = 24 * 3600_000
 const MAKS_KOMENTAR_PER_STATUS = 300
 const MAKS_STATUS_AKTIF = 10
@@ -44,17 +46,23 @@ export class StatusService implements OnModuleInit, OnModuleDestroy {
     if (r.count) this.log.log(`${r.count} status kedaluwarsa dibuang`)
   }
 
-  /** Syarat status terlihat oleh `saya`: milik sendiri, atau pemiliknya satu grup buatan manual (bukan grup otomatis) dengan saya. */
+  /**
+   * Syarat status terlihat oleh `saya`: milik sendiri; milik admin utama (terlihat semua orang); atau pemiliknya satu grup dengan saya.
+   * Grup bawaan PELAYAN tidak dihitung (isinya terlalu banyak orang); grup lain, otomatis maupun buatan, dihitung.
+   */
   private bolehLihat(saya: string, terblokir: string[]) {
     return {
       kedaluwarsa: { gt: new Date() },
       OR: [
         { anggotaId: saya },
+        { anggotaId: { notIn: terblokir }, anggota: { status: 'AKTIF' as const, peran: 'ADMIN_UTAMA' as const } },
         {
           anggotaId: { notIn: terblokir },
           anggota: {
             status: 'AKTIF' as const,
-            keanggotaanGrup: { some: { grup: { kunci: null, anggota: { some: { anggotaId: saya } } } } },
+            keanggotaanGrup: {
+              some: { grup: { OR: [{ kunci: null }, { kunci: { not: KUNCI_GRUP_PELAYAN } }], anggota: { some: { anggotaId: saya } } } },
+            },
           },
         },
       ],
@@ -82,7 +90,7 @@ export class StatusService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Status aktif milik saya dan teman satu grup manual; milik saya paling depan, lalu yang terbaru. */
+  /** Status aktif milik saya, admin utama, dan teman satu grup (kecuali grup PELAYAN); milik saya paling depan, lalu yang terbaru. */
   async daftar(p: Pengguna) {
     const aktif = { kedaluwarsa: { gt: new Date() } }
     const terblokir = await this.kontak.terblokirDenganSaya(p.id)

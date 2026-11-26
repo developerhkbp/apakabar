@@ -27,7 +27,11 @@ function Centang({ p, total }: { p: Pesan; total: number }) {
 }
 
 /** Percakapan 1:1 maupun grup. Untuk grup, `namaPengirim` menampilkan nama di atas gelembung masuk. */
-export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang, geser, bilahIzin, bilahAtas, saya }: {
+export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avatar, judul, subjudul, grup, jumlahPenerima, daftar, kirim, kirimLampiran, ambil, kembali, bukaInfo, namaPengirim, tekanLama, kirimUlang, geser, bilahIzin, bilahAtas, saya, sunting, batalSunting, simpanSunting }: {
+  /** Pesan saya yang sedang diubah isinya (kolom ketik terisi teks lamanya). */
+  sunting?: Pesan | null
+  batalSunting?: () => void
+  simpanSunting?: (p: Pesan, teksBaru: string) => void
   /** Bila ada, menggantikan kolom ketik (mis. harus minta izin dulu). */
   bilahIzin?: ReactNode
   /** Bilah di bawah header, mis. deretan status teman. */
@@ -54,8 +58,8 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
   namaPengirim?: (id: string) => string
   /** Foto kecil (±28) pengirim, ditampilkan di samping tiap pesan masuk. */
   fotoPengirim?: (id: string) => ReactNode
-  /** Aksi geser pada pesan: kanan = balas, kiri = tombol Teruskan/Favorit/Hapus. */
-  geser?: { balas?: (p: Pesan) => void; teruskan: (p: Pesan) => void; favorit: (p: Pesan) => void; hapus: (p: Pesan) => void }
+  /** Aksi geser pada pesan: kanan = balas, kiri = tombol Ubah/Teruskan/Favorit/Hapus. */
+  geser?: { balas?: (p: Pesan) => void; ubah?: (p: Pesan) => void; teruskan: (p: Pesan) => void; favorit: (p: Pesan) => void; hapus: (p: Pesan) => void }
   /** Menu saat gelembung ditekan lama (mis. hapus pesan). */
   tekanLama?: (p: Pesan) => void
   /** Pesan yang sedang dibalas (ditampilkan di atas kolom ketik). */
@@ -91,6 +95,8 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
     setTimeout(() => setSorot(x => (x === id ? null : x)), 1600)
   }
   const [teks, setTeks] = useState('')
+  // Mode ubah pesan: isi kolom ketik dengan teks lama; batal mengosongkannya lagi
+  useEffect(() => { if (sunting) { setTeks(buka(sunting.teks).teks); setEmoji(false) } }, [sunting?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const [emoji, setEmoji] = useState(false)
   const [terpilih, setTerpilih] = useState<Terpilih[]>([])
   const [progres, setProgres] = useState<string | null>(null)
@@ -126,6 +132,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
   const kirimSemua = async () => {
     const t = teks.trim()
     if (progres) return
+    if (sunting && simpanSunting) { if (!t) return; setTeks(''); simpanSunting(sunting, t); return }
     if (!terpilih.length) { if (!t) return; setTeks(''); kirim(t); return }
     const berkas = terpilih
     setProgres(`Mengunggah 1 dari ${berkas.length}…`)
@@ -230,7 +237,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                   </View>
                 ) : null}
                 <Text style={s.meta}>
-                  {item.favorit ? '★ ' : ''}{jam(item.waktu)}
+                  {item.favorit ? '★ ' : ''}{item.diubah ? 'diubah · ' : ''}{jam(item.waktu)}
                   {item.saya ? (item.status === 'gagal' ? (item.gagalJaringan ? '  🕓' : '  ⚠ ketuk untuk kirim ulang') : item.status === 'terkirim' || item.terima || item.baca ? '  ' : '  🕓') : ''}
                   {item.saya && item.status !== 'gagal' && (item.status === 'terkirim' || item.terima || item.baca) ? <Centang p={item} total={jumlahPenerima} /> : null}
                 </Text>
@@ -248,9 +255,10 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
               <GeserPesan
                 balas={geser.balas && item.ref ? () => geser.balas!(item) : undefined}
                 aksi={[
-                  { label: 'Teruskan', ikon: '↪', warna: '#1976D2', aksi: () => geser.teruskan(item) },
-                  { label: item.favorit ? 'Lepas' : 'Favorit', ikon: item.favorit ? '★' : '☆', warna: '#F5A623', aksi: () => geser.favorit(item) },
-                  { label: 'Hapus', ikon: '🗑', warna: '#E53935', aksi: () => geser.hapus(item) },
+                  ...(geser.ubah && item.saya && item.ref ? [{ label: 'Ubah', warna: '#2E7D32', aksi: () => geser.ubah!(item) }] : []),
+                  { label: 'Teruskan', warna: '#1976D2', aksi: () => geser.teruskan(item) },
+                  { label: item.favorit ? 'Lepas' : 'Favorit', warna: '#F5A623', aksi: () => geser.favorit(item) },
+                  { label: 'Hapus', warna: '#E53935', aksi: () => geser.hapus(item) },
                 ]}
               >
                 {isiBaris}
@@ -293,6 +301,18 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
           </Text>
         </View>
       ) : null}
+      {sunting ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#E3E6E8' }}>
+          <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: '#2E7D32' }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#2E7D32' }}>Mengubah pesan</Text>
+            <Text style={{ fontSize: 13.5, color: '#54656f' }} numberOfLines={1}>{ringkas(sunting.teks) || 'Pesan'}</Text>
+          </View>
+          <Pressable onPress={() => { setTeks(''); batalSunting?.() }} hitSlop={10} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#EEF0F1', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#667781', fontSize: 14 }}>✕</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {balasan ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#E3E6E8' }}>
           <View style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, backgroundColor: '#1976D2' }} />
@@ -321,9 +341,9 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
         </View>
         <Pressable
           style={[{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#1976D2', alignItems: 'center', justifyContent: 'center', elevation: 2 }, progres ? { opacity: 0.5 } : null]}
-          onPress={!teks.trim() && !terpilih.length && !progres ? () => { Keyboard.dismiss(); setEmoji(false); setMerekam(true) } : kirimSemua}
+          onPress={!sunting && !teks.trim() && !terpilih.length && !progres ? () => { Keyboard.dismiss(); setEmoji(false); setMerekam(true) } : kirimSemua}
         >
-          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: !teks.trim() && !terpilih.length ? 22 : 20, marginLeft: !teks.trim() && !terpilih.length ? 0 : 2 }}>{!teks.trim() && !terpilih.length ? '🎤' : '➤'}</Text>}
+          {progres ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: !sunting && !teks.trim() && !terpilih.length ? 22 : 20, marginLeft: !sunting && !teks.trim() && !terpilih.length ? 0 : 2 }}>{sunting ? '✓' : !teks.trim() && !terpilih.length ? '🎤' : '➤'}</Text>}
         </Pressable>
       </View>
       </>}

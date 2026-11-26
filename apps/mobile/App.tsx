@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActivityIndicator, Alert, AppState, BackHandler, FlatList, Pressable, Text, TextInput, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
-  adaOnline, adminRingkasan, blokirAnggota, bukaBlokirAnggota, bungkusReaksi, klaimRiwayat, mintaIzin, ringkasanKontak, statusKontak, terimaIzin, tolakIzin, daftarAnggota, daftarGrup, daftarKomentarStatus, daftarStatus, detailGrup, hapusKomentarStatus, hapusStatus, muatArsipStatus, simpanArsipStatus, keluar, kirimKomentarStatus, simpanStatus, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
+  adaOnline, adminRingkasan, blokirAnggota, bukaBlokirAnggota, bungkusReaksi, bungkusUbah, klaimRiwayat, mintaIzin, ringkasanKontak, statusKontak, terimaIzin, tolakIzin, daftarAnggota, daftarGrup, daftarKomentarStatus, daftarStatus, detailGrup, hapusKomentarStatus, hapusStatus, muatArsipStatus, simpanArsipStatus, keluar, kirimKomentarStatus, simpanStatus, kunciGrup, mintaOtp, muatRiwayat, muatSesi, Obrolan,
   profilAnggota, simpanRiwayat, sudahOnboarding, tandaiOnboarding, ubahFotoGrup, ubahFotoSaya, verifikasi, versiFotoSaya,
   GalatApi, type PermintaanObrolan, type StatusKontak, type Anggota, type DetailGrup, type ArsipStatus, type StatusHarian, type Pesan, type RingkasGrup, type Riwayat, type Sesi,
 } from './src/server'
@@ -12,12 +12,13 @@ import { awalNama, EMAS_TUA, s, setTemaAdmin, waktuDaftar } from './src/gaya'
 import { Menunggu } from './src/layar/Menunggu'
 import { Admin } from './src/layar/Admin'
 import { BuatGrup, InfoGrup } from './src/layar/Grup'
-import { buka, bungkus, bungkusLampiran, cuplikanBalas, denganBalasan, ringkas, untukDiteruskan } from './src/konten'
+import { buka, bungkus, bungkusLampiran, cuplikanBalas, denganBalasan, gantiTeks, ringkas, untukDiteruskan } from './src/konten'
 import { saring, unggahSemua, type Terpilih } from './src/lampiran'
 import { Galeri } from './src/layar/Galeri'
 import { ambilPratinjau, cariTautan } from './src/pratinjau'
 import { Percakapan } from './src/layar/Percakapan'
 import { Favorit } from './src/layar/Favorit'
+import { BarisGeser, type AksiGeser } from './src/layar/BarisGeser'
 import { BarisPermintaan, BilahIzin, KartuBlokir } from './src/layar/Izin'
 import { BarisStatus, BarisStatusRingkas, DetailStatus, KartuStatusSaya } from './src/layar/Status'
 import { Teruskan } from './src/layar/Teruskan'
@@ -150,6 +151,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   const insets = useSafeAreaInsets()
   /** Pesan yang sedang dibalas di percakapan `kunci`. */
   const [balasan, setBalasan] = useState<{ kunci: string; p: Pesan } | null>(null)
+  /** Pesan saya yang sedang diubah isinya di percakapan `kunci`. */
+  const [sunting, setSunting] = useState<{ kunci: string; p: Pesan } | null>(null)
   const [cari, setCari] = useState('')
   const [tersambung, setTersambung] = useState(false)
   const obrolan = useRef<Obrolan | null>(null)
@@ -349,6 +352,8 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         const { [oleh]: _lama, ...sisa } = p.reaksi ?? {}
         return { ...p, reaksi: emoji ? { ...sisa, [oleh]: emoji } : sisa }
       }) }))
+    o.onUbah = (kunci, pengirimId, ref, isiBaru) =>
+      setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(p => (p.dari === pengirimId && p.ref === ref && !p.dihapus ? { ...p, teks: isiBaru, diubah: true } : p)) }))
     o.onButuhIzin = untuk => {
       muatIzin(untuk)
       Alert.alert('Pesan belum terkirim', 'Anda perlu izin dulu dari penerima. Buka percakapannya lalu ketuk "Minta izin kirim pesan".')
@@ -456,6 +461,25 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     }
   }
 
+  /** Simpan perubahan teks pesan saya: diperbarui di sini lalu dikirim ke penerima sebagai pesan kontrol terenkripsi. */
+  const simpanUbah = async (kunci: string, p: Pesan, teksBaru: string) => {
+    setSunting(null)
+    if (!p.ref) return
+    const isiBaru = gantiTeks(p.teks, teksBaru)
+    if (isiBaru === p.teks) return
+    setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(m => (m.id === p.id ? { ...m, teks: isiBaru, diubah: true } : m)) }))
+    const isi = bungkusUbah(p.dari, p.ref, isiBaru)
+    try {
+      const o = obrolan.current!
+      if (kunci.startsWith('g:')) {
+        const d: DetailGrup = await detailGrup(sesi.token, kunci.slice(2))
+        await o.kirimGrup({ id: d.id, idDistribusi: d.idDistribusi, anggotaIds: d.anggota.map(a => a.id) }, isi)
+      } else await o.kirim(kunci, isi)
+    } catch (e) {
+      Alert.alert('Perubahan belum terkirim', (e as Error)?.message || 'Periksa koneksi lalu coba lagi.')
+    }
+  }
+
   // Status online lawan bicara di percakapan yang terbuka (diperbarui tiap 15 detik).
   const idLawan = layar.j === 'orang' ? layar.anggota.id : layar.j === 'profil' && layar.jenis === 'anggota' && layar.anggota ? layar.anggota.id : null
   useEffect(() => {
@@ -485,6 +509,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
   /** Aksi geser pesan (kanan: balas; kiri: teruskan, favorit, hapus) untuk percakapan `kunci`. */
   const geserPesan = (kunci: string, untukSemua: (p: Pesan) => (() => void) | undefined) => ({
     balas: (p: Pesan) => setBalasan({ kunci, p }),
+    ubah: (p: Pesan) => { setBalasan(null); setSunting({ kunci, p }) },
     teruskan: (p: Pesan) => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }),
     favorit: (p: Pesan) => gantiFavorit(kunci, p),
     hapus: (p: Pesan) => {
@@ -505,6 +530,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     const item: ItemMenu[] = []
     if (!p.dihapus && p.status !== 'gagal') {
       if (p.ref) item.push({ label: 'Balas', aksi: () => setBalasan({ kunci, p }) })
+      if (p.saya && p.ref) item.push({ label: 'Ubah pesan', aksi: () => { setBalasan(null); setSunting({ kunci, p }) } })
       item.push({ label: 'Teruskan', aksi: () => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }) })
       item.push({ label: p.favorit ? 'Hapus dari favorit' : 'Favoritkan', aksi: () => gantiFavorit(kunci, p) })
     }
@@ -526,7 +552,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         bukaInfo={() => setLayar({ j: 'profil', jenis: 'anggota', anggota: lawan, balik: layar })}
         judul={lawan.nama}
         saya={sesi.id}
-        bilahAtas={<BarisStatusRingkas tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
+        bilahAtas={<BarisStatusRingkas saya={{ id: sesi.id, nama: sesi.nama, v: fotoSaya }} tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
         bilahIzin={izin[lawan.id] && izin[lawan.id] !== 'IZIN' ? (
           <BilahIzin
             nama={lawan.nama} status={izin[lawan.id]} sibuk={sibukIzin}
@@ -553,6 +579,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         geser={geserPesan(lawan.id, p => (p.saya && p.ref && p.status !== 'gagal' ? () => obrolan.current?.hapusPesanPribadi(lawan.id, p.ref!) : undefined))}
         subjudul={online[lawan.id] ? 'online' : undefined}
         balasan={balasan?.kunci === lawan.id ? balasan.p : null}
+        sunting={sunting?.kunci === lawan.id ? sunting.p : null}
+        batalSunting={() => setSunting(null)}
+        simpanSunting={(p, t) => simpanUbah(lawan.id, p, t)}
         batalBalas={() => setBalasan(null)}
         namaBalas={id => (id === sesi.id ? 'Anda' : lawan.nama)}
       />
@@ -572,7 +601,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         avatar={<Avatar jenis="grup" id={g.id} v={grup.find(x => x.id === g.id)?.fotoV} nama={g.nama} ukuran={36} />}
         judul={g.nama}
         saya={sesi.id}
-        bilahAtas={<BarisStatusRingkas tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
+        bilahAtas={<BarisStatusRingkas saya={{ id: sesi.id, nama: sesi.nama, v: fotoSaya }} tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: layar })} />}
         subjudul={`${g.jumlah} anggota`}
         grup
         daftar={pesan[k] ?? []}
@@ -593,6 +622,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         kirimUlang={p => kirimUlang(k, p)}
         geser={geserPesan(k, p => ((p.saya || adalahAdmin || g.peranSaya === 'ADMIN_GRUP') && !!p.ref ? () => obrolan.current?.hapusPesanGrup(g.id, p.dari, p.ref!) : undefined))}
         balasan={balasan?.kunci === k ? balasan.p : null}
+        sunting={sunting?.kunci === k ? sunting.p : null}
+        batalSunting={() => setSunting(null)}
+        simpanSunting={(p, t) => simpanUbah(k, p, t)}
         batalBalas={() => setBalasan(null)}
         namaBalas={id => (id === sesi.id ? 'Anda' : namaAnggota.get(id) ?? namaGrup[id] ?? 'Anggota')}
       />
@@ -730,6 +762,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
           muat={() => profilAnggota(sesi.token, sesi.id)} saya
           tambahan={
             <KartuStatusSaya
+              saya={{ id: sesi.id, nama: sesi.nama, v: fotoSaya }}
               daftar={statusList.filter(x => x.saya)}
               riwayat={arsip.filter(a => !statusList.some(x => x.id === a.id))}
               hapusRiwayat={hapusArsip}
@@ -820,28 +853,63 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     ...(lainnya.length > BATAS_CARI ? [{ t: 'seksi', label: `…dan ${lainnya.length - BATAS_CARI} lainnya. Persempit pencarian.` } as Baris] : []),
   ]
 
-  const barisObrolan = (judul: string, kunci: string, grupIni: boolean, buka: () => void, avatar: ReactNode) => {
+  const [geserBuka, setGeserBuka] = useState<string | null>(null)
+  const hapusObrolan = (kunci: string, judul: string, grupIni: boolean) => Alert.alert(
+    grupIni ? `Hapus pesan di ${judul}?` : `Hapus percakapan dengan ${judul}?`,
+    'Pesan hanya dihapus dari perangkat ini. Pesan baru tetap akan masuk.',
+    [{ text: 'Batal', style: 'cancel' }, { text: 'Hapus', style: 'destructive', onPress: () => { setPesan(x => ({ ...x, [kunci]: [] })); setBelumBaca(b => ({ ...b, [kunci]: 0 })) } }],
+  )
+  const barisObrolan = (judul: string, kunci: string, grupIni: boolean, buka: () => void, avatar: ReactNode, lawanId?: string) => {
     const terakhir = (pesan[kunci] ?? []).slice(-1)[0]
     const n = belumBaca[kunci] ?? 0
+    const diblokir = !!lawanId && (kontak.diblokir.includes(lawanId) || izin[lawanId] === 'DIBLOKIR_SAYA')
+    const aksi: AksiGeser[] = [
+      ...(lawanId ? [{
+        label: diblokir ? 'Buka blokir' : 'Blokir', warna: '#F57C00',
+        onPress: () => (diblokir
+          ? aksiIzin(lawanId, () => bukaBlokirAnggota(sesi.token, lawanId))
+          : Alert.alert(`Blokir ${judul}?`, 'Anda tidak akan menerima pesan darinya, dan statusnya tidak akan terlihat satu sama lain.', [
+            { text: 'Batal', style: 'cancel' },
+            { text: 'Blokir', style: 'destructive', onPress: () => aksiIzin(lawanId, () => blokirAnggota(sesi.token, lawanId)) },
+          ])),
+      }] : []),
+      { label: grupIni ? 'Hapus pesan' : 'Hapus', warna: '#E53935', onPress: () => hapusObrolan(kunci, judul, grupIni) },
+    ]
+    // Pratinjau: siapa pengirim pesan terakhir + cuplikannya
+    let pengirim = ''
+    if (terakhir && !terakhir.dihapus) {
+      if (terakhir.saya) pengirim = 'Anda: '
+      else if (grupIni) pengirim = `${(anggota.find(a => a.id === terakhir.dari)?.nama ?? 'Anggota').split(' ')[0]}: `
+    }
+    const cuplikan = n > 0 && !terakhir ? (n > 1 ? `${n} pesan baru` : 'Pesan baru')
+      : terakhir ? (terakhir.dihapus ? 'Pesan ini dihapus' : `${pengirim}${ringkas(terakhir.teks)}`) : 'Ketuk untuk mulai mengobrol'
     return (
-      <Pressable
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: pressed ? '#F1F4F8' : '#fff', borderRadius: 18, marginHorizontal: 12, marginVertical: 4, paddingHorizontal: 14, paddingVertical: 12, elevation: 1 })}
-        onPress={() => { setBelumBaca(b => ({ ...b, [kunci]: 0 })); buka() }}
-      >
-        {avatar}
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[s.nama, { flex: 1 }]} numberOfLines={1}>{judul}</Text>
-            {terakhir ? <Text style={{ fontSize: 12, color: n > 0 ? '#1976D2' : '#8696A0', fontWeight: n > 0 ? '700' : '400' }}>{waktuDaftar(terakhir.waktu)}</Text> : null}
+      <View style={{ borderRadius: 18, marginHorizontal: 12, marginVertical: 4, overflow: 'hidden', elevation: 1, backgroundColor: '#fff' }}>
+        <BarisGeser
+          aksi={aksi}
+          terbuka={geserBuka === kunci}
+          onBuka={() => setGeserBuka(kunci)}
+          onTutup={() => setGeserBuka(k => (k === kunci ? null : k))}
+          onPress={() => { setBelumBaca(b => ({ ...b, [kunci]: 0 })); buka() }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 12 }}>
+            {avatar}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[s.nama, { flex: 1 }]} numberOfLines={1}>{judul}</Text>
+                {diblokir ? <Text style={{ fontSize: 11, color: '#F57C00', fontWeight: '700' }}>DIBLOKIR</Text> : null}
+                {terakhir ? <Text style={{ fontSize: 12, color: n > 0 ? '#1976D2' : '#8696A0', fontWeight: n > 0 ? '700' : '400' }}>{waktuDaftar(terakhir.waktu)}</Text> : null}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                <Text style={[s.cuplikan, { flex: 1, marginTop: 0 }, n > 0 && { color: '#111', fontWeight: '600' }]} numberOfLines={2}>
+                  {n > 1 && terakhir ? `${n} pesan baru · ` : ''}{cuplikan}
+                </Text>
+                {n > 0 ? <View style={s.lencana}><Text style={s.lencanaTeks}>{n}</Text></View> : null}
+              </View>
+            </View>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 }}>
-            <Text style={[s.cuplikan, { flex: 1, marginTop: 0 }, n > 0 && { color: '#111', fontWeight: '600' }]} numberOfLines={1}>
-              {n > 0 ? (n > 1 ? `${n} pesan baru` : 'Pesan baru') : terakhir ? (terakhir.dihapus ? 'Pesan ini dihapus' : ringkas(terakhir.teks)) : 'Ketuk untuk mulai mengobrol'}
-            </Text>
-            {n > 0 ? <View style={s.lencana}><Text style={s.lencanaTeks}>{n}</Text></View> : null}
-          </View>
-        </View>
-      </Pressable>
+        </BarisGeser>
+      </View>
     )
   }
 
@@ -882,10 +950,11 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         data={data}
         keyExtractor={(b, i) => (b.t === 'seksi' ? `s${b.label}` : b.t === 'grup' ? `g${b.g.id}` : `a${b.a.id}`) + i}
         keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => setGeserBuka(null)}
         ListHeaderComponent={q ? undefined : (
           <>
             <BarisPermintaan daftar={kontak.masuk} buka={r => setLayar({ j: 'orang', anggota: { id: r.id, nama: r.nama, fotoV: r.fotoV } })} />
-            <BarisStatus tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: { j: 'daftar' } })} />
+            <BarisStatus saya={{ id: sesi.id, nama: sesi.nama, v: fotoSaya }} tambah={tambahStatus} daftar={statusList} anggota={anggota} buka={id => setLayar({ j: 'status', id, balik: { j: 'daftar' } })} />
           </>
         )}
         ListEmptyComponent={<Text style={s.kosong}>{q ? 'Tidak ada yang cocok.' : 'Belum ada obrolan. Ketuk tombol hijau di kanan bawah untuk memulai.'}</Text>}
@@ -894,7 +963,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         renderItem={({ item }) => {
           if (item.t === 'seksi') return <Text style={s.seksi}>{item.label}</Text>
           if (item.t === 'grup') return barisObrolan(item.g.nama, kunciGrup(item.g.id), true, () => setLayar({ j: 'grup', grup: item.g }), <Avatar jenis="grup" id={item.g.id} v={item.g.fotoV} nama={item.g.nama} />)
-          return barisObrolan(item.a.nama, item.a.id, false, () => setLayar({ j: 'orang', anggota: item.a }), <Avatar jenis="anggota" id={item.a.id} v={item.a.fotoV} nama={item.a.nama} />)
+          return barisObrolan(item.a.nama, item.a.id, false, () => setLayar({ j: 'orang', anggota: item.a }), <Avatar jenis="anggota" id={item.a.id} v={item.a.fotoV} nama={item.a.nama} />, item.a.id)
         }}
       />
       <Pressable

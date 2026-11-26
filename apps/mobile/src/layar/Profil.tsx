@@ -93,13 +93,23 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
     }
   }
 
+  const ubahFoto = () => {
+    const pilih = () => jalankan(async () => (await pilihFoto()) ?? undefined)
+    if (!v) { pilih(); return }
+    Alert.alert('Foto profil', undefined, [
+      { text: 'Pilih foto baru', onPress: pilih },
+      { text: 'Hapus foto', style: 'destructive', onPress: () => jalankan(async () => null) },
+      { text: 'Batal', style: 'cancel' },
+    ])
+  }
+
   const labelPeran = lencana ?? (data ? LABEL_PERAN[data.peran] : null)
   const gelap = '#0A2540'
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F0F2F5' }}>
       <StatusBar style="light" />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Sampul */}
         <View style={{ backgroundColor: gelap, paddingTop: 48, paddingBottom: 70, paddingHorizontal: 16 }}>
           <View style={{ position: 'absolute', right: -50, top: -30, width: 190, height: 190, borderRadius: 95, backgroundColor: HIJAU_TUA, opacity: 0.55 }} />
@@ -114,6 +124,22 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
         <View style={{ alignItems: 'center', marginTop: -62 }}>
           <View style={{ padding: 5, backgroundColor: '#fff', borderRadius: 100, borderWidth: 1, borderColor: '#E9EDEF' }}>
             <Avatar jenis={jenis} id={id} v={v} nama={nama} ukuran={132} />
+            {sibuk ? (
+              <View style={{ position: 'absolute', left: 5, top: 5, width: 132, height: 132, borderRadius: 66, backgroundColor: '#00000066', alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            ) : null}
+            {bolehUbah ? (
+              <Pressable
+                disabled={sibuk}
+                onPress={ubahFoto}
+                accessibilityLabel="Ubah foto"
+                hitSlop={8}
+                style={{ position: 'absolute', right: 2, bottom: 6, width: 42, height: 42, borderRadius: 21, backgroundColor: HIJAU_TUA, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 3 }}
+              >
+                <Text style={{ fontSize: 18 }}>📷</Text>
+              </Pressable>
+            ) : null}
           </View>
           <Text style={{ fontSize: 24, fontWeight: '700', color: '#111B21', textAlign: 'center', marginTop: 12, paddingHorizontal: 24 }}>{nama}</Text>
           {subjudul ? <Text style={{ color: '#667781', marginTop: 2 }}>{subjudul}</Text> : null}
@@ -182,30 +208,6 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
             ) : (
               <ActivityIndicator style={{ marginTop: 28 }} color={HIJAU_TUA} />
             )
-          ) : null}
-
-          {/* Ganti foto */}
-          {bolehUbah ? (
-            <Kartu judul="FOTO">
-              <View style={{ gap: 8, paddingVertical: 10 }}>
-                <Pressable style={{ borderRadius: 24, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: HIJAU }} disabled={sibuk} onPress={() => jalankan(async () => (await pilihFoto()) ?? undefined)}>
-                  {sibuk ? <ActivityIndicator /> : <Text style={{ color: HIJAU_TUA, fontSize: 16, fontWeight: '600' }}>{v ? 'Ganti foto' : 'Pilih foto'}</Text>}
-                </Pressable>
-                {v ? (
-                  <Pressable
-                    style={{ borderRadius: 24, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E53935' }}
-                    disabled={sibuk}
-                    onPress={() => Alert.alert('Hapus foto?', undefined, [
-                      { text: 'Batal', style: 'cancel' },
-                      { text: 'Hapus', style: 'destructive', onPress: () => jalankan(async () => null) },
-                    ])}
-                  >
-                    <Text style={{ color: '#E53935', fontSize: 16, fontWeight: '600' }}>Hapus foto</Text>
-                  </Pressable>
-                ) : null}
-                <Text style={{ color: '#8696A0', fontSize: 12, textAlign: 'center' }}>Foto otomatis diperkecil sebelum diunggah.</Text>
-              </View>
-            </Kartu>
           ) : null}
         </View>
       </ScrollView>

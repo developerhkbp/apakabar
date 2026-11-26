@@ -19,7 +19,9 @@ export type Pesan = { id: string; dari: string; teks: string; waktu: number; say
   /** Ditandai bintang oleh pemilik perangkat; hanya tersimpan lokal di riwayat terenkripsi. */
   favorit?: boolean
   /** Reaksi emoji per pemberi (id anggota → emoji). */
-  reaksi?: Record<string, string> }
+  reaksi?: Record<string, string>
+  /** Isi pesan pernah diubah oleh pengirimnya. */
+  diubah?: boolean }
 export type StatusAnggota = 'DIUNDANG' | 'MENUNGGU' | 'AKTIF' | 'DITANGGUHKAN'
 export type PeranAnggota = 'USER' | 'ADMIN' | 'ADMIN_UTAMA'
 export type Sesi = { id: string; nama: string; token: string; refresh: string; status?: StatusAnggota; peran?: PeranAnggota }
@@ -213,6 +215,10 @@ const AWALAN_KUNCI = '\u0001SKDM:'
 const AWALAN_REAKSI = '\u0001RX:'
 export const bungkusReaksi = (pengirimId: string, ref: string, emoji: string) => `${AWALAN_REAKSI}${pengirimId}|${ref}|${emoji}`
 
+/** Perubahan isi pesan oleh pengirimnya: pesan terenkripsi biasa berisi `ED:pengirimPesan|refPesan|isiBaru` (isi baru boleh memuat tanda |). */
+const AWALAN_UBAH = 'ED:'
+export const bungkusUbah = (pengirimId: string, ref: string, isiBaru: string) => `${AWALAN_UBAH}${pengirimId}|${ref}|${isiBaru}`
+
 type TerbagiGrup = Record<string, { dist: string; ke: string[] }>
 
 /** Koneksi relay + enkripsi. Kunci hanya ada di perangkat; server hanya melihat ciphertext. */
@@ -236,6 +242,8 @@ export class Obrolan {
   onPeran: (peran: PeranAnggota) => void = () => {}
   /** Reaksi masuk: kunci obrolan, pengirim pesan asli, ref pesan, pemberi reaksi, emoji ('' = dicabut). */
   onReaksi: (kunci: string, pengirimId: string, ref: string, oleh: string, emoji: string) => void = () => {}
+  /** Pesan diubah pengirimnya: kunci obrolan, pengirim pesan asli, ref pesan, isi baru. */
+  onUbah: (kunci: string, pengirimId: string, ref: string, isiBaru: string) => void = () => {}
   /** Server menolak pesan karena belum ada izin obrolan dengan `untuk`. */
   onButuhIzin: (untuk: string) => void = () => {}
   /** Permintaan izin berubah (ada yang meminta atau menerima). */
@@ -339,11 +347,11 @@ export class Obrolan {
         if (h.t === 'sampai' || h.t === 'baca') this.onTanda(m.grupId ? kunciGrup(m.grupId) : m.dari, h.idKlien, m.dari, h.t, h.waktu)
       } else if (m.grupId) {
         const teks = await Signal.dekripsiGrup(m.dari, m.isi)
-        if (!this.keReaksi(kunciGrup(m.grupId), m.dari, teks)) this.onPesanGrup(m.grupId, { id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
+        if (!this.keReaksi(kunciGrup(m.grupId), m.dari, teks) && !this.keUbah(kunciGrup(m.grupId), m.dari, teks)) this.onPesanGrup(m.grupId, { id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
       } else {
         const teks = await Signal.dekripsi(m.dari, m.jenis, m.isi)
         if (teks.startsWith(AWALAN_KUNCI)) await Signal.terimaKunciGrup(m.dari, teks.slice(AWALAN_KUNCI.length))
-        else if (this.keReaksi(m.dari, m.dari, teks)) { /* reaksi: bukan pesan */ }
+        else if (this.keReaksi(m.dari, m.dari, teks) || this.keUbah(m.dari, m.dari, teks)) { /* reaksi/ubah: bukan pesan */ }
         else this.onPesan({ id: m.id, dari: m.dari, teks, waktu: m.waktu, saya: false, ref: m.idKlien })
       }
     } catch (err) {
@@ -358,6 +366,19 @@ export class Obrolan {
     if (!teks.startsWith(AWALAN_REAKSI)) return false
     const [pengirimId, ref, emoji] = teks.slice(AWALAN_REAKSI.length).split('|')
     if (pengirimId && ref) this.onReaksi(kunci, pengirimId, ref, oleh, emoji ?? '')
+    return true
+  }
+
+  /** Bila `teks` adalah perubahan isi pesan, teruskan ke onUbah dan kembalikan true. Hanya pengirim asli yang boleh mengubah pesannya. */
+  private keUbah(kunci: string, oleh: string, teks: string) {
+    if (!teks.startsWith(AWALAN_UBAH)) return false
+    const isi = teks.slice(AWALAN_UBAH.length)
+    const a = isi.indexOf('|')
+    const b = isi.indexOf('|', a + 1)
+    if (a > 0 && b > a) {
+      const pengirimId = isi.slice(0, a)
+      if (pengirimId === oleh) this.onUbah(kunci, pengirimId, isi.slice(a + 1, b), isi.slice(b + 1))
+    }
     return true
   }
 
@@ -485,7 +506,7 @@ export type ProfilAnggota = {
   grupBersama: { id: string; nama: string; fotoV: number; jumlah: number; peranDiGrup: PeranGrup }[]
 }
 export const profilAnggota = (token: string, id: string) => api<ProfilAnggota>('GET', `/anggota/${id}/profil`, undefined, token)
-/** Status harian "Apa kabar Anda hari ini?" — berlaku 24 jam, tampil untuk teman satu grup buatan manual. Tidak E2EE. */
+/** Status harian "Apa kabar Anda hari ini?" — berlaku 24 jam, tampil untuk orang satu grup (kecuali grup Pelayan); status admin utama terlihat semua orang. Tidak E2EE. */
 export type StatusHarian = {
   id: string; anggotaId: string; nama: string; teks: string; suasana: string | null
   dibuatPada: string; kedaluwarsa: string; jumlahKomentar: number; saya: boolean

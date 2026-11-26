@@ -44,8 +44,7 @@ export class GrupService {
 
   async buat(pembuat: Pengguna, nama: string, anggotaIds: string[], adminIds: string[]) {
     if (!this.adalahAdminAplikasi(pembuat)) throw new ForbiddenException('Hanya admin yang boleh membuat grup')
-    const utama = (await this.prisma.anggota.findMany({ where: { peran: 'ADMIN_UTAMA', status: 'AKTIF' }, select: { id: true } })).map((a) => a.id)
-    const semua = await this.idAktif([pembuat.id, ...anggotaIds, ...adminIds, ...utama]) // admin utama selalu ikut
+    const semua = await this.idAktif([pembuat.id, ...anggotaIds, ...adminIds]) // grup buatan: admin utama tidak ikut otomatis
     if (semua.length > MAKS_ANGGOTA_GRUP) throw new BadRequestException(`Anggota grup maksimal ${MAKS_ANGGOTA_GRUP}`)
     const admin = new Set([pembuat.id, ...adminIds])
     const g = await this.prisma.grup.create({
@@ -137,8 +136,12 @@ export class GrupService {
     if (anggotaId !== p.id) await this.pastikanPengelola(grupId, p)
     const k = await this.prisma.anggotaGrup.findUnique({ where: { grupId_anggotaId: { grupId, anggotaId } } })
     if (!k) throw new NotFoundException('Anggota tidak ada di grup ini')
-    const sasaran = await this.prisma.anggota.findUnique({ where: { id: anggotaId }, select: { peran: true } })
-    if (sasaran?.peran === 'ADMIN_UTAMA') throw new ForbiddenException('Admin utama selalu menjadi anggota semua grup')
+    // Hanya di grup otomatis (berkunci) admin utama tidak bisa dikeluarkan; di grup buatan boleh
+    const [sasaran, grup] = await Promise.all([
+      this.prisma.anggota.findUnique({ where: { id: anggotaId }, select: { peran: true } }),
+      this.prisma.grup.findUnique({ where: { id: grupId }, select: { kunci: true } }),
+    ])
+    if (sasaran?.peran === 'ADMIN_UTAMA' && grup?.kunci) throw new ForbiddenException('Admin utama selalu menjadi anggota grup otomatis')
     if (k.peran === 'ADMIN_GRUP') await this.pastikanAdaAdminLain(grupId, anggotaId)
     await this.prisma.$transaction([
       this.prisma.anggotaGrup.delete({ where: { grupId_anggotaId: { grupId, anggotaId } } }),

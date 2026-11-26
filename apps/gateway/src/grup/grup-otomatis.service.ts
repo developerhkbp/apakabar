@@ -31,16 +31,16 @@ export class GrupOtomatisService implements OnModuleInit {
 
   constructor(private readonly prisma: PrismaService, private readonly relay: PesanGateway) {}
 
-  /** Saat layanan menyala: pastikan admin utama sudah ada di semua grup yang sudah ada. */
+  /** Saat layanan menyala: pastikan admin utama sudah ada di semua grup otomatis. */
   onModuleInit() {
     this.masukkanAdminUtama().catch((e) => this.log.warn(`Gagal memasukkan admin utama ke grup: ${(e as Error).message}`))
   }
 
-  /** Admin utama otomatis menjadi anggota setiap grup (otomatis maupun buatan manual). */
+  /** Admin utama otomatis menjadi anggota setiap grup otomatis (berkunci); grup buatan manual tidak disentuh. */
   async masukkanAdminUtama(): Promise<number> {
     const utama = (await this.prisma.anggota.findMany({ where: { peran: 'ADMIN_UTAMA', status: 'AKTIF' }, select: { id: true } })).map((a) => a.id)
     if (!utama.length) return 0
-    const grup = await this.prisma.grup.findMany({ select: { id: true, anggota: { where: { anggotaId: { in: utama } }, select: { anggotaId: true } } } })
+    const grup = await this.prisma.grup.findMany({ where: { kunci: { not: null } }, select: { id: true, anggota: { where: { anggotaId: { in: utama } }, select: { anggotaId: true } } } })
     let total = 0
     for (const g of grup) {
       const sudah = new Set(g.anggota.map((a) => a.anggotaId))

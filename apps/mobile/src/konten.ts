@@ -70,6 +70,9 @@ export const denganBalasan = (mentah: string, balas: Balasan): string => bungkus
 /** Isi untuk diteruskan: kutipan balasan dibuang, ditandai "Diteruskan". */
 export const untukDiteruskan = (mentah: string): string => bungkusLengkap({ ...buka(mentah), balas: undefined, diteruskan: true })
 
+/** Mengganti teks pada isi yang sudah terbungkus (pratinjau, lampiran, kutipan balasan tetap). */
+export const gantiTeks = (mentah: string, teksBaru: string): string => bungkusLengkap({ ...buka(mentah), teks: teksBaru })
+
 /** Cuplikan pendek untuk kutipan balasan. */
 export const cuplikanBalas = (mentah: string): string => ringkas(mentah).replace(/\s+/g, ' ').slice(0, 140)
 

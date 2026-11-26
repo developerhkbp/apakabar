@@ -18,6 +18,60 @@ function sisaWaktu(iso: string) {
   return jam >= 1 ? `berakhir ${jam} jam lagi` : `berakhir ${Math.max(1, Math.floor(ms / 60_000))} menit lagi`
 }
 
+type Saya = { id: string; nama: string; v?: number }
+
+/** Kolom tulis status gaya Facebook: foto sendiri + kolom ketik langsung "Apa kabar Anda hari ini?"; pilihan suasana dan tombol Bagikan muncul saat mengetik. */
+function KolomTulisStatus({ saya, tambah }: { saya?: Saya; tambah: (teks: string, suasana?: string) => Promise<void> }) {
+  const [teks, setTeks] = useState('')
+  const [suasana, setSuasana] = useState<string | undefined>()
+  const [fokus, setFokus] = useState(false)
+  const [sibuk, setSibuk] = useState(false)
+  const terbuka = fokus || teks.length > 0
+  const kirim = async () => {
+    if (sibuk || !teks.trim()) return
+    setSibuk(true)
+    try {
+      await tambah(teks.trim(), suasana)
+      setTeks(''); setSuasana(undefined); setFokus(false); Keyboard.dismiss()
+    } catch (e) { Alert.alert('Status gagal dibagikan', (e as Error).message || 'Periksa koneksi lalu coba lagi.') } finally { setSibuk(false) }
+  }
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: terbuka ? 'flex-start' : 'center', gap: 10 }}>
+        {saya ? <Avatar jenis="anggota" id={saya.id} v={saya.v} nama={saya.nama} ukuran={42} /> : <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#DFE5E7' }} />}
+        <TextInput
+          value={teks}
+          onChangeText={setTeks}
+          onFocus={() => setFokus(true)}
+          onBlur={() => setFokus(false)}
+          maxLength={MAKS_STATUS}
+          multiline
+          placeholder={PERTANYAAN_STATUS}
+          placeholderTextColor="#667781"
+          style={{ flex: 1, minHeight: 42, maxHeight: 140, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderRadius: 21, backgroundColor: '#F0F2F5', borderWidth: 1, borderColor: fokus ? HIJAU : '#E4E6E7', fontSize: 15.5, color: '#111B21', textAlignVertical: 'center' }}
+        />
+      </View>
+      {terbuka ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {SUASANA.map(e => (
+            <Pressable key={e} onPress={() => setSuasana(suasana === e ? undefined : e)} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: suasana === e ? '#CFE6FA' : '#F0F2F5', borderWidth: suasana === e ? 2 : 0, borderColor: HIJAU }}>
+              <Text style={{ fontSize: 18 }}>{e}</Text>
+            </Pressable>
+          ))}
+          <View style={{ flex: 1 }} />
+          <Pressable
+            disabled={sibuk || !teks.trim()}
+            onPress={kirim}
+            style={{ borderRadius: 20, paddingVertical: 9, paddingHorizontal: 18, backgroundColor: HIJAU_TUA, opacity: sibuk || !teks.trim() ? 0.45 : 1 }}
+          >
+            {sibuk ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Bagikan</Text>}
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 /** Lembar penyusun status baru (dipakai dari beranda dan dari Profil saya). */
 export function PenyusunStatus({ tampil, tutup, simpan }: { tampil: boolean; tutup: () => void; simpan: (teks: string, suasana?: string) => Promise<void> }) {
   const insets = useSafeAreaInsets()
@@ -64,7 +118,7 @@ export function PenyusunStatus({ tampil, tutup, simpan }: { tampil: boolean; tut
           >
             {sibuk ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Bagikan status</Text>}
           </Pressable>
-          <Text style={{ color: '#8696A0', fontSize: 12 }}>Tampil 24 jam untuk teman satu grup buatan (bukan grup bawaan). Boleh membagikan beberapa status. Status dan komentar tidak dienkripsi ujung ke ujung.</Text>
+          <Text style={{ color: '#8696A0', fontSize: 12 }}>Tampil 24 jam untuk orang yang satu grup dengan Anda (selain grup Pelayan). Status Admin Utama terlihat semua orang. Boleh membagikan beberapa status. Status dan komentar tidak dienkripsi ujung ke ujung.</Text>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -72,7 +126,8 @@ export function PenyusunStatus({ tampil, tutup, simpan }: { tampil: boolean; tut
 }
 
 /** Kartu di Profil saya: semua status saya yang masih tayang, tombol tambah, lihat komentar, dan hapus. */
-export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, buka }: {
+export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, buka, saya }: {
+  saya?: Saya
   daftar: StatusHarian[]
   /** Status lama yang sudah berakhir 24 jam tetapi masih tersimpan di HP ini. */
   riwayat: ArsipStatus[]
@@ -81,7 +136,6 @@ export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, 
   hapusRiwayat: (id: string) => void
   buka: (id: string) => void
 }) {
-  const [menulis, setMenulis] = useState(false)
   const [banyak, setBanyak] = useState(false)
   const tampilRiwayat = banyak ? riwayat : riwayat.slice(0, 5)
   const [sibuk, setSibuk] = useState(false)
@@ -98,8 +152,8 @@ export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, 
 
   return (
     <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, marginTop: 12, borderWidth: 1, borderColor: '#E9EDEF', gap: 10 }}>
-      <Text style={{ fontSize: 12, fontWeight: '700', color: HIJAU_TUA, letterSpacing: 0.6 }}>STATUS SAYA{daftar.length ? ` (${daftar.length})` : ''}</Text>
-      <Text style={{ fontSize: 18, fontWeight: '700', color: '#111B21' }}>{PERTANYAAN_STATUS}</Text>
+      <KolomTulisStatus saya={saya} tambah={tambah} />
+      {daftar.length ? <Text style={{ fontSize: 12, fontWeight: '700', color: HIJAU_TUA, letterSpacing: 0.6, marginTop: 4 }}>STATUS SAYA ({daftar.length})</Text> : null}
       {daftar.map(st => (
         <View key={st.id} style={{ backgroundColor: '#F7F9FB', borderRadius: 12, padding: 12, gap: 8 }}>
           <Text style={{ fontSize: 16, color: '#111B21', lineHeight: 22 }}>{st.suasana ? `${st.suasana}  ` : ''}{st.teks}</Text>
@@ -110,9 +164,6 @@ export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, 
           </View>
         </View>
       ))}
-      <Pressable onPress={() => setMenulis(true)} style={{ borderRadius: 24, paddingVertical: 12, alignItems: 'center', backgroundColor: HIJAU_TUA }}>
-        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>＋ Tambah status</Text>
-      </Pressable>
       {riwayat.length ? (
         <View style={{ gap: 8, marginTop: 6 }}>
           <Text style={{ fontSize: 12, fontWeight: '700', color: '#667781', letterSpacing: 0.6 }}>RIWAYAT DI HP INI ({riwayat.length})</Text>
@@ -141,14 +192,12 @@ export function KartuStatusSaya({ daftar, riwayat, tambah, hapus, hapusRiwayat, 
           ) : null}
         </View>
       ) : null}
-      <PenyusunStatus tampil={menulis} tutup={() => setMenulis(false)} simpan={tambah} />
     </View>
   )
 }
 
 /** Deretan status di beranda: kartu "Tambah status" paling depan, lalu status sendiri, lalu teman. Selalu tampil agar status mudah ditambah. */
-export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusHarian[]; anggota: Anggota[]; buka: (id: string) => void; tambah: (teks: string, suasana?: string) => Promise<void> }) {
-  const [menulis, setMenulis] = useState(false)
+export function BarisStatus({ daftar, anggota, buka, tambah, saya }: { saya?: Saya; daftar: StatusHarian[]; anggota: Anggota[]; buka: (id: string) => void; tambah: (teks: string, suasana?: string) => Promise<void> }) {
   // Satu kartu per orang (status terbarunya, plus jumlah status) supaya deretan tetap ringkas walau status sudah banyak.
   const orang = useMemo(() => {
     const m = new Map<string, StatusHarian[]>()
@@ -158,7 +207,10 @@ export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusH
   const fotoV = useMemo(() => new Map(anggota.map(a => [a.id, a.fotoV])), [anggota])
   return (
     <View style={{ paddingTop: 6, paddingBottom: 4 }}>
-      <Text style={[s.seksi, { marginBottom: 2 }]}>STATUS</Text>
+      <View style={{ backgroundColor: '#fff', marginHorizontal: 12, marginTop: 4, marginBottom: 10, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: '#E9EDEF' }}>
+        <KolomTulisStatus saya={saya} tambah={tambah} />
+      </View>
+      {orang.length ? <Text style={[s.seksi, { marginBottom: 2 }]}>STATUS</Text> : null}
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -168,15 +220,6 @@ export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusH
         initialNumToRender={6}
         windowSize={5}
         contentContainerStyle={{ paddingHorizontal: 12, gap: 10 }}
-        ListHeaderComponent={
-          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tambah status" style={{ width: 132, minHeight: 112, marginRight: 10, borderRadius: 16, padding: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: HIJAU, backgroundColor: '#EAF2FC', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: HIJAU_TUA, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#fff', fontSize: 26, marginTop: -2 }}>＋</Text>
-            </View>
-            <Text style={{ fontSize: 13.5, fontWeight: '700', color: HIJAU_TUA }}>Tambah status</Text>
-            <Text style={{ fontSize: 11.5, color: '#54656f', textAlign: 'center' }}>{PERTANYAAN_STATUS}</Text>
-          </Pressable>
-        }
         renderItem={({ item: l }) => {
           const x = l[0]
           return (
@@ -192,13 +235,12 @@ export function BarisStatus({ daftar, anggota, buka, tambah }: { daftar: StatusH
           )
         }}
       />
-      <PenyusunStatus tampil={menulis} tutup={() => setMenulis(false)} simpan={tambah} />
     </View>
   )
 }
 
 /** Versi ringkas BarisStatus untuk di atas layar percakapan: lingkaran foto kecil, satu per orang. */
-export function BarisStatusRingkas({ daftar, anggota, buka, tambah }: { daftar: StatusHarian[]; anggota: Anggota[]; buka: (id: string) => void; tambah: (teks: string, suasana?: string) => Promise<void> }) {
+export function BarisStatusRingkas({ daftar, anggota, buka, tambah, saya }: { saya?: Saya; daftar: StatusHarian[]; anggota: Anggota[]; buka: (id: string) => void; tambah: (teks: string, suasana?: string) => Promise<void> }) {
   const [menulis, setMenulis] = useState(false)
   const orang = useMemo(() => {
     const m = new Map<string, StatusHarian[]>()
@@ -216,11 +258,14 @@ export function BarisStatusRingkas({ daftar, anggota, buka, tambah }: { daftar: 
         keyExtractor={l => l[0].anggotaId}
         contentContainerStyle={{ paddingHorizontal: 12, gap: 14 }}
         ListHeaderComponent={
-          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tambah status" style={{ alignItems: 'center', width: 58, marginRight: 14 }}>
-            <View style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, borderStyle: 'dashed', borderColor: HIJAU, backgroundColor: '#EAF2FC', alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: HIJAU_TUA, fontSize: 24, marginTop: -2 }}>＋</Text>
+          <Pressable onPress={() => setMenulis(true)} accessibilityLabel="Tulis status" style={{ alignItems: 'center', width: 58, marginRight: 14 }}>
+            <View>
+              {saya ? <Avatar jenis="anggota" id={saya.id} v={saya.v} nama={saya.nama} ukuran={44} /> : <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#DFE5E7' }} />}
+              <View style={{ position: 'absolute', right: -3, bottom: -3, width: 18, height: 18, borderRadius: 9, backgroundColor: HIJAU_TUA, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 12, lineHeight: 14, fontWeight: '700' }}>+</Text>
+              </View>
             </View>
-            <Text style={{ fontSize: 11, color: HIJAU_TUA, marginTop: 3 }} numberOfLines={1}>Status</Text>
+            <Text style={{ fontSize: 11, color: HIJAU_TUA, marginTop: 3 }} numberOfLines={1}>Kabar saya</Text>
           </Pressable>
         }
         renderItem={({ item: l }) => {
