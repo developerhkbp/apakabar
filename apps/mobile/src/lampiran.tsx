@@ -3,8 +3,8 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
 import * as Sharing from 'expo-sharing'
 import { VideoView, useVideoPlayer } from 'expo-video'
-import { useEffect, useState } from 'react'
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Image, ToastAndroid, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import Signal from '../modules/signal-protocol/src'
 import { adalahAudio, adalahFoto, adalahVideo, type Lampiran } from './konten'
 import { PemutarSuara } from './suara'
@@ -72,7 +72,14 @@ export async function unggahSemua(
   const hasil: Lampiran[] = []
   for (let i = 0; i < berkas.length; i++) {
     progres(i + 1, berkas.length)
-    const b = berkas[i]
+    let b = berkas[i]
+    // HEIC/HEIF diubah ke JPEG supaya terbuka di semua perangkat; bila gagal, kirim apa adanya
+    if (/^image\/hei[cf]/i.test(b.mime) || /\.hei[cf]$/i.test(b.nama)) {
+      try {
+        const jpeg = await Signal.keJpeg(b.uri)
+        if (jpeg) b = { ...b, uri: jpeg, mime: 'image/jpeg', nama: b.nama.replace(/\.hei[cf]$/i, '') + '.jpg', ukuran: Signal.ukuranBerkas(jpeg) }
+      } catch { /* build lama tanpa fungsi ini */ }
+    }
     const media = b.mime.startsWith('image/') || b.mime.startsWith('video/')
     const th = media ? await Signal.thumbnail(b.uri, b.mime.startsWith('video/'), 200).catch(() => null) : null
     const u = await unggah(b.uri)
@@ -128,6 +135,60 @@ export function IsiLampiran({ daftar, buka, tekanLama, ambil }: { daftar: Lampir
   )
 }
 
+const jarak = (t: readonly { pageX: number; pageY: number }[]) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY)
+
+/** Gambar yang bisa diperbesar: cubit dua jari, geser saat diperbesar, ketuk dua kali untuk zoom/kembali. */
+function GambarZoom({ uri }: { uri: string }) {
+  const [tf, setTf] = useState({ s: 1, x: 0, y: 0 })
+  const keadaan = useRef({ s: 1, x: 0, y: 0, awalJarak: 0, awalS: 1, awalX: 0, awalY: 0, ketukTerakhir: 0 })
+  const terapkan = (s: number, x: number, y: number) => {
+    const k = keadaan.current
+    const bs = Math.min(5, Math.max(1, s))
+    k.s = bs
+    k.x = bs === 1 ? 0 : x
+    k.y = bs === 1 ? 0 : y
+    setTf({ s: k.s, x: k.x, y: k.y })
+  }
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: e => {
+        const k = keadaan.current
+        k.awalJarak = 0
+        k.awalS = k.s
+        k.awalX = k.x
+        k.awalY = k.y
+        const t = e.nativeEvent.touches
+        if (t.length === 1) {
+          const sekarang = Date.now()
+          if (sekarang - k.ketukTerakhir < 280) {
+            if (k.s > 1) terapkan(1, 0, 0)
+            else terapkan(2.5, 0, 0)
+            k.ketukTerakhir = 0
+          } else k.ketukTerakhir = sekarang
+        }
+      },
+      onPanResponderMove: (e, g) => {
+        const k = keadaan.current
+        const t = e.nativeEvent.touches
+        if (t.length >= 2) {
+          const d = jarak(t)
+          if (!k.awalJarak) { k.awalJarak = d; k.awalS = k.s; k.awalX = k.x; k.awalY = k.y; return }
+          terapkan(k.awalS * (d / k.awalJarak), k.x, k.y)
+        } else if (k.s > 1 && !k.awalJarak) {
+          terapkan(k.s, k.awalX + g.dx, k.awalY + g.dy)
+        }
+      },
+    }),
+  ).current
+  return (
+    <View style={{ flex: 1 }} {...pan.panHandlers}>
+      <Image source={{ uri }} style={{ flex: 1, transform: [{ translateX: tf.x }, { translateY: tf.y }, { scale: tf.s }] }} resizeMode="contain" />
+    </View>
+  )
+}
+
 function PemutarVideo({ uri }: { uri: string }) {
   const p = useVideoPlayer(uri, x => { x.play() })
   return <VideoView player={p} style={{ flex: 1 }} nativeControls contentFit="contain" />
@@ -141,6 +202,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
   const [uri, setUri] = useState<string | null>(null)
   const [galat, setGalat] = useState('')
   const [ulang, setUlang] = useState(0)
+  const [menyimpan, setMenyimpan] = useState(false)
   const dokumen = !(adalahFoto(l) || adalahVideo(l))
 
   useEffect(() => {
@@ -149,7 +211,11 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
     ambil(l)
       .then(async p => {
         if (batal) return
-        const u = p.startsWith('file://') ? p : `file://${p}`
+        let u = p.startsWith('file://') ? p : `file://${p}`
+        // Foto HEIC/HEIF (dari pengirim lain/build lama) dibuka lewat salinan JPEG agar tampil di semua perangkat
+        if (!dokumen && /^image\/hei[cf]/i.test(l.m)) {
+          try { const j = await Signal.keJpeg(u); if (j) u = `file://${j}` } catch { /* pakai berkas asli */ }
+        }
         if (dokumen) {
           try { if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(u, { mimeType: l.m, dialogTitle: l.n }) } catch { /* dibatalkan */ }
           if (!batal) tutup()
@@ -159,12 +225,32 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
     return () => { batal = true }
   }, [l, ulang])
 
+  const simpan = async () => {
+    if (!uri || menyimpan) return
+    setMenyimpan(true)
+    try {
+      const heif = /^image\/hei[cf]/i.test(l.m)
+      const nama = heif ? l.n.replace(/\.hei[cf]$/i, '') + '.jpg' : l.n
+      const mime = heif ? 'image/jpeg' : l.m
+      const ok = await Signal.simpanKeGaleri(uri, nama, mime)
+      ToastAndroid.show(ok ? 'Tersimpan di galeri (album Apa Kabar)' : 'Gagal menyimpan ke galeri', ToastAndroid.SHORT)
+    } catch {
+      ToastAndroid.show('Gagal menyimpan. Perbarui aplikasi lalu coba lagi.', ToastAndroid.LONG)
+    }
+    setMenyimpan(false)
+  }
+
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000', zIndex: 50 }]}>
       <StatusBar style="light" />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingTop: 44, paddingHorizontal: 16, paddingBottom: 10 }}>
         <Pressable onPress={tutup} hitSlop={14}><Text style={{ color: '#fff', fontSize: 24 }}>←</Text></Pressable>
         <Text style={{ color: '#fff', fontSize: 15, flex: 1 }} numberOfLines={1}>{l.n}</Text>
+        {uri && !dokumen ? (
+          <Pressable onPress={simpan} hitSlop={14} disabled={menyimpan} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FFFFFF26', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7 }}>
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{menyimpan ? 'Menyimpan…' : '⬇ Unduh'}</Text>
+          </Pressable>
+        ) : null}
       </View>
       <View style={{ flex: 1, justifyContent: 'center' }}>
         {galat ? (
@@ -183,7 +269,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
         ) : adalahVideo(l) ? (
           <PemutarVideo uri={uri} />
         ) : (
-          <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" />
+          <GambarZoom uri={uri} />
         )}
       </View>
     </View>

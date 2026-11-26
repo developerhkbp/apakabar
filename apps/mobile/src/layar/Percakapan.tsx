@@ -7,7 +7,8 @@ import { awalNama, jam, labelHari, sehari, s } from '../gaya'
 import { buka, ringkas, type Lampiran } from '../konten'
 import { GeserPesan } from '../geser'
 import { BilahRekam } from '../suara'
-import { IsiLampiran, Penampil, pilihDokumen, pilihFotoVideo, ukuranTeks, type Terpilih } from '../lampiran'
+import { TeksBertautan } from '../tautan'
+import { IsiLampiran,Penampil, pilihDokumen, pilihFotoVideo, ukuranTeks, type Terpilih } from '../lampiran'
 
 const EMOJI = (
   '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😜 🤪 😝 🤗 🤭 🤫 🤔 😐 😑 😶 😏 😒 🙄 😬 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 🥴 😵 🤯 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 ' +
@@ -223,7 +224,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                       </Pressable>
                     ) : null}
                     {k.lampiran?.length ? <IsiLampiran daftar={k.lampiran} buka={setDibuka} ambil={ambil} tekanLama={tekanLama ? () => tekanLama(item) : undefined} /> : null}
-                    {k.teks ? <Text style={[s.isi, k.lampiran?.length ? { marginTop: 4 } : null]}>{k.teks}</Text> : null}
+                    {k.teks ? <Text style={[s.isi, k.lampiran?.length ? { marginTop: 4 } : null]}><TeksBertautan teks={k.teks} /></Text> : null}
                   </>
                 )}
                 {!item.dihapus && item.reaksi && Object.keys(item.reaksi).length ? (

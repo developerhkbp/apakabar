@@ -44,6 +44,10 @@ type Native = {
   unduhBerkas(url: string, token: string, kunci: string, iv: string, namaFile: string): Promise<string>
   /** JPEG kecil (data URI) dari foto/video. */
   thumbnail(sumber: string, video: boolean, maks: number): Promise<string | null>
+  /** Ubah foto HEIC/HEIF ke JPEG; mengembalikan jalur berkas JPEG baru atau null bila gagal. */
+  keJpeg(sumber: string): Promise<string | null>
+  /** Simpan foto/video ke galeri (album "Apa Kabar"); true bila berhasil. */
+  simpanKeGaleri(sumber: string, nama: string, mime: string): Promise<boolean>
   ukuranBerkas(sumber: string): number
   /** Isi yang dibagikan dari aplikasi lain lewat menu Bagikan (dibaca sekali); uri kosong = berkas gagal disalin/terlalu besar. */
   bagikanMasuk(): Promise<{ teks: string; berkas: { uri: string; nama: string; mime: string; ukuran: number }[] } | null>

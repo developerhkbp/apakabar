@@ -229,6 +229,8 @@ class SignalProtocolModule : Module() {
       Lampiran.unduh(url, token, kunci, iv, tujuan, appContext.reactContext!!.cacheDir)
     }
     AsyncFunction("thumbnail") { sumber: String, video: Boolean, maks: Int -> Lampiran.thumbnail(sumber, video, maks) }
+    AsyncFunction("keJpeg") { sumber: String -> Lampiran.keJpeg(sumber, appContext.reactContext!!.cacheDir) }
+    AsyncFunction("simpanKeGaleri") { sumber: String, nama: String, mime: String -> Lampiran.simpanKeGaleri(appContext.reactContext!!, sumber, nama, mime) }
     Function("ukuranBerkas") { sumber: String -> Lampiran.ukuran(sumber) }
   }
 }

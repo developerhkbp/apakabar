@@ -1,10 +1,14 @@
 package expo.modules.signalprotocol
 
+import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Base64
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -163,6 +167,47 @@ object Lampiran {
     val o = ByteArrayOutputStream()
     kecil.compress(Bitmap.CompressFormat.JPEG, 60, o)
     return "data:image/jpeg;base64," + Base64.encodeToString(o.toByteArray(), Base64.NO_WRAP)
+  }
+
+  /** Mengubah foto HEIC/HEIF menjadi JPEG (orientasi EXIF diterapkan) agar terbuka di semua perangkat. Null bila gagal didekode. */
+  /** Salin foto/video ke galeri (MediaStore, tanpa izin penyimpanan). Mengembalikan true bila berhasil. */
+  fun simpanKeGaleri(ctx: Context, sumber: String, nama: String, mime: String): Boolean {
+    val berkas = File(bersihkan(sumber))
+    if (!berkas.exists()) return false
+    val video = mime.startsWith("video/")
+    val koleksi = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+    val folder = (if (video) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES) + "/Apa Kabar"
+    val nilai = ContentValues().apply {
+      put(MediaStore.MediaColumns.DISPLAY_NAME, nama)
+      put(MediaStore.MediaColumns.MIME_TYPE, mime)
+      put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
+      put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val uri = ctx.contentResolver.insert(koleksi, nilai) ?: return false
+    return try {
+      ctx.contentResolver.openOutputStream(uri)!!.use { o -> FileInputStream(berkas).use { it.copyTo(o) } }
+      ctx.contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+      true
+    } catch (e: Exception) {
+      ctx.contentResolver.delete(uri, null, null)
+      false
+    }
+  }
+
+  fun keJpeg(sumber: String, cache: File): String? {
+    val jalur = bersihkan(sumber)
+    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(jalur, o)
+    if (o.outWidth <= 0) return null
+    var s = 1
+    while (o.outWidth / s > 4096 || o.outHeight / s > 4096) s *= 2
+    var bmp = BitmapFactory.decodeFile(jalur, BitmapFactory.Options().apply { inSampleSize = s }) ?: return null
+    val arah = try { ExifInterface(jalur).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1) } catch (e: Exception) { 1 }
+    val sudut = when (arah) { 6 -> 90f; 3 -> 180f; 8 -> 270f; else -> 0f }
+    if (sudut != 0f) bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(sudut) }, true)
+    val tujuan = File.createTempFile("heif", ".jpg", cache)
+    FileOutputStream(tujuan).use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+    return tujuan.absolutePath
   }
 
   fun ukuran(sumber: String): Double = File(bersihkan(sumber)).length().toDouble()
