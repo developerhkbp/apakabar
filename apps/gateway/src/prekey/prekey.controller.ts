@@ -21,9 +21,9 @@ export class PrekeyController {
     const daftar = await this.prisma.anggota.findMany({
       where: { status: 'AKTIF', perangkat: { isNot: null }, id: { not: saya.id } },
       orderBy: { nama: 'asc' },
-      select: { id: true, nama: true, fotoV: true, fotoSuperapp: true },
+      select: { id: true, nama: true, fotoV: true, fotoSuperapp: true, peran: true },
     })
-    return daftar.map(({ fotoSuperapp, ...a }) => ({ ...a, fotoUrl: fotoSuperapp }))
+    return daftar.map(({ fotoSuperapp, peran, ...a }) => ({ ...a, fotoUrl: fotoSuperapp, adminUtama: peran === 'ADMIN_UTAMA' }))
   }
 
   /** Profil lengkap satu anggota + grup yang diikuti bersama pemanggil (direktori tertutup, sesama anggota aktif). */

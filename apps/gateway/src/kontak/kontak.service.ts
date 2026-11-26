@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common'
 import { PeristiwaService } from '../common/peristiwa.service'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -133,6 +133,8 @@ export class KontakService {
   async blokir(saya: string, id: string) {
     if (saya === id) throw new BadRequestException('Tidak valid')
     await this.pastikanAda(id)
+    const sasaran = await this.prisma.anggota.findUnique({ where: { id }, select: { peran: true } })
+    if (sasaran?.peran === 'ADMIN_UTAMA') throw new ForbiddenException('Admin utama tidak dapat diblokir')
     await this.prisma.blokir.upsert({
       where: { pemblokirId_diblokirId: { pemblokirId: saya, diblokirId: id } },
       create: { pemblokirId: saya, diblokirId: id },

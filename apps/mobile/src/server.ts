@@ -7,7 +7,7 @@ import type { Lampiran } from './konten'
 // dan mulai dengan EXPO_PUBLIC_API_URL=http://localhost:3101 (bundel memakai nilai ini saat build).
 export const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://apakabar.hkbp.or.id'
 
-export type Anggota = { id: string; nama: string; fotoV?: number; fotoUrl?: string | null }
+export type Anggota = { id: string; nama: string; fotoV?: number; fotoUrl?: string | null; adminUtama?: boolean }
 /** `ref` = id pesan buatan pengirim (sama untuk semua penerima grup); dipakai untuk menghapus pesan. */
 export type Pesan = { id: string; dari: string; teks: string; waktu: number; saya: boolean; status?: 'terkirim' | 'dikirim' | 'gagal'; ref?: string; dihapus?: boolean
   /** Tanda terima per penerima (id anggota → waktu): sampai di perangkatnya / sudah dibaca. */

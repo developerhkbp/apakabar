@@ -19,7 +19,7 @@ import { ambilPratinjau, cariTautan } from './src/pratinjau'
 import { Percakapan } from './src/layar/Percakapan'
 import { Favorit } from './src/layar/Favorit'
 import { BarisGeser, type AksiGeser } from './src/layar/BarisGeser'
-import { BarisPermintaan, BilahIzin, KartuBlokir } from './src/layar/Izin'
+import { BarisPermintaan, BilahIzin } from './src/layar/Izin'
 import { BarisStatus, BarisStatusRingkas, DetailStatus, KartuStatusSaya } from './src/layar/Status'
 import { Teruskan } from './src/layar/Teruskan'
 import { Avatar, setTokenFoto } from './src/avatar'
@@ -794,20 +794,20 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         simpanFoto={async () => {}}
         muat={() => profilAnggota(sesi.token, a.id)} online={online[a.id]}
         kirimPesan={() => setLayar({ j: 'orang', anggota: a })}
-        tambahan={(() => {
+        menu={d => {
+          // Admin utama tidak dapat diblokir
+          if (d?.peran === 'ADMIN_UTAMA' || anggota.find(x => x.id === a.id)?.adminUtama) return []
           const diblokir = kontak.diblokir.includes(a.id) || izin[a.id] === 'DIBLOKIR_SAYA'
-          return (
-            <KartuBlokir
-              nama={a.nama} diblokir={diblokir}
-              ubah={() => diblokir
-                ? aksiIzin(a.id, () => bukaBlokirAnggota(sesi.token, a.id))
-                : Alert.alert(`Blokir ${a.nama}?`, 'Anda tidak akan menerima pesan darinya, dan statusnya tidak akan terlihat satu sama lain.', [
-                    { text: 'Batal', style: 'cancel' },
-                    { text: 'Blokir', style: 'destructive', onPress: () => aksiIzin(a.id, () => blokirAnggota(sesi.token, a.id)) },
-                  ])}
-            />
-          )
-        })()}
+          return [diblokir
+            ? { label: `Buka blokir ${a.nama.split(' ')[0]}`, onPress: () => aksiIzin(a.id, () => bukaBlokirAnggota(sesi.token, a.id)) }
+            : {
+              label: `Blokir ${a.nama.split(' ')[0]}`, warna: '#E53935',
+              onPress: () => Alert.alert(`Blokir ${a.nama}?`, 'Anda tidak akan menerima pesan darinya, dan statusnya tidak akan terlihat satu sama lain.', [
+                { text: 'Batal', style: 'cancel' },
+                { text: 'Blokir', style: 'destructive', onPress: () => aksiIzin(a.id, () => blokirAnggota(sesi.token, a.id)) },
+              ]),
+            }]
+        }}
         kembali={() => setLayar(balik)}
       />
     )
@@ -863,8 +863,9 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     const terakhir = (pesan[kunci] ?? []).slice(-1)[0]
     const n = belumBaca[kunci] ?? 0
     const diblokir = !!lawanId && (kontak.diblokir.includes(lawanId) || izin[lawanId] === 'DIBLOKIR_SAYA')
+    const adminUtama = !!lawanId && !!anggota.find(x => x.id === lawanId)?.adminUtama
     const aksi: AksiGeser[] = [
-      ...(lawanId ? [{
+      ...(lawanId && !adminUtama ? [{
         label: diblokir ? 'Buka blokir' : 'Blokir', warna: '#F57C00',
         onPress: () => (diblokir
           ? aksiIzin(lawanId, () => bukaBlokirAnggota(sesi.token, lawanId))

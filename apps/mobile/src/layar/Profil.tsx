@@ -50,7 +50,9 @@ function Kartu({ judul, children }: { judul?: string; children: React.ReactNode 
  * (profil sendiri; atau grup oleh admin grup / admin aplikasi). Foto diperkecil di perangkat sebelum diunggah.
  * Untuk anggota, `muat` mengambil data lengkap (nomor HP, tanggal bergabung, grup bersama) dari server.
  */
-export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpanFoto, kembali, muat, kirimPesan, saya, online, tambahan }: {
+export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpanFoto, kembali, muat, kirimPesan, saya, online, tambahan, menu }: {
+  /** Isi menu ⋮ di pojok kanan atas; menerima profil terbaru (bila sudah termuat). Kosong = menu tidak ditampilkan. */
+  menu?: (data: ProfilAnggota | null) => { label: string; warna?: string; onPress: () => void }[]
   /** Bagian tambahan di bawah aksi cepat (mis. kartu status). */
   tambahan?: React.ReactNode
   jenis: 'anggota' | 'grup'
@@ -68,6 +70,7 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
   online?: boolean
 }) {
   const [sibuk, setSibuk] = useState(false)
+  const [menuBuka, setMenuBuka] = useState(false)
   const [data, setData] = useState<ProfilAnggota | null>(null)
   const [galat, setGalat] = useState('')
 
@@ -103,6 +106,8 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
     ])
   }
 
+  const itemMenu = menu ? menu(data) : []
+
   const labelPeran = lencana ?? (data ? LABEL_PERAN[data.peran] : null)
   const gelap = '#0A2540'
 
@@ -118,6 +123,11 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
             <Text style={{ color: '#fff', fontSize: 22 }}>←</Text>
             <Text style={{ color: '#fff', fontSize: 19, fontWeight: '600' }}>{jenis === 'grup' ? 'Info grup' : saya ? 'Profil saya' : 'Profil'}</Text>
           </Pressable>
+          {itemMenu.length ? (
+            <Pressable onPress={() => setMenuBuka(true)} hitSlop={14} accessibilityLabel="Menu" style={{ position: 'absolute', right: 16, top: 46 }}>
+              <Text style={{ color: '#fff', fontSize: 24 }}>⋮</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {/* Foto menumpuk di batas sampul */}
@@ -211,6 +221,17 @@ export function Profil({ jenis, id, nama, subjudul, lencana, v, bolehUbah, simpa
           ) : null}
         </View>
       </ScrollView>
+      {menuBuka && itemMenu.length ? (
+        <Pressable onPress={() => setMenuBuka(false)} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
+          <View style={{ position: 'absolute', right: 12, top: 76, backgroundColor: '#fff', borderRadius: 12, elevation: 8, minWidth: 190, paddingVertical: 6 }}>
+            {itemMenu.map(m => (
+              <Pressable key={m.label} onPress={() => { setMenuBuka(false); m.onPress() }} style={{ paddingHorizontal: 16, paddingVertical: 13 }}>
+                <Text style={{ fontSize: 15.5, color: m.warna ?? '#111B21', fontWeight: '600' }}>{m.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      ) : null}
     </View>
   )
 }
