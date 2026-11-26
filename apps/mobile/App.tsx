@@ -114,7 +114,7 @@ type Layar =
   | { j: 'galeri'; grup: RingkasGrup }
   | { j: 'kontak' }
   | { j: 'profil'; jenis: 'saya' | 'anggota' | 'grup'; anggota?: Anggota; grup?: RingkasGrup; balik: Layar }
-  | { j: 'teruskan'; isi: string; kunciAsal: string; balik: Layar }
+  | { j: 'teruskan'; isi: string; kunciAsal: string; asal?: { d: string; n: string }; balik: Layar }
   | { j: 'infoPesan'; kunci: string; id: string; grup?: RingkasGrup; lawan?: Anggota; balik: Layar }
   | { j: 'buatGrup' }
   | { j: 'admin' }
@@ -506,13 +506,15 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     setPesan(x => ({ ...x, [kunciTerbuka]: (x[kunciTerbuka] ?? []).map(p => (ids.has(p.id) ? { ...p, dilapor: true } : p)) }))
   }, [kunciTerbuka, pesan, tersambung])
 
+  /** Pengirim asli sebuah pesan (id + nama) untuk dibawa saat diteruskan. */
+  const asalPesan = (p: Pesan) => ({ d: p.saya ? sesi.id : p.dari, n: p.saya ? sesi.nama : namaAnggota.get(p.dari) ?? namaGrup[p.dari] ?? 'Anggota' })
   const gantiFavorit = (kunci: string, p: Pesan) =>
     setPesan(x => ({ ...x, [kunci]: (x[kunci] ?? []).map(m => (m.id === p.id ? { ...m, favorit: !m.favorit } : m)) }))
   /** Aksi geser pesan (kanan: balas; kiri: teruskan, favorit, hapus) untuk percakapan `kunci`. */
   const geserPesan = (kunci: string, untukSemua: (p: Pesan) => (() => void) | undefined) => ({
     balas: (p: Pesan) => setBalasan({ kunci, p }),
     ubah: (p: Pesan) => { setBalasan(null); setSunting({ kunci, p }) },
-    teruskan: (p: Pesan) => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }),
+    teruskan: (p: Pesan) => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, asal: asalPesan(p), balik: layarRef.current }),
     favorit: (p: Pesan) => gantiFavorit(kunci, p),
     hapus: (p: Pesan) => {
       const semua = untukSemua(p)
@@ -533,7 +535,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
     if (!p.dihapus && p.status !== 'gagal') {
       if (p.ref) item.push({ label: 'Balas', aksi: () => setBalasan({ kunci, p }) })
       if (p.saya && p.ref) item.push({ label: 'Ubah pesan', aksi: () => { setBalasan(null); setSunting({ kunci, p }) } })
-      item.push({ label: 'Teruskan', aksi: () => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, balik: layarRef.current }) })
+      item.push({ label: 'Teruskan', aksi: () => setLayar({ j: 'teruskan', isi: p.teks, kunciAsal: kunci, asal: asalPesan(p), balik: layarRef.current }) })
       item.push({ label: p.favorit ? 'Hapus dari favorit' : 'Favoritkan', aksi: () => gantiFavorit(kunci, p) })
     }
     if (p.saya && p.status !== 'gagal') item.push({ label: 'Info pesan', aksi: () => setLayar(info) })
@@ -645,7 +647,7 @@ function Utama({ sesi, onKeluar }: { sesi: Sesi; onKeluar: () => void }) {
         kunciAsal={t.kunciAsal}
         kembali={() => setLayar(t.balik)}
         kirim={async tujuan => {
-          const isi = untukDiteruskan(t.isi)
+          const isi = untukDiteruskan(t.isi, t.asal)
           for (const kunci of tujuan) await kirimKe(kunci, isi, true)
           setLayar(t.balik)
         }}

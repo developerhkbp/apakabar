@@ -13,10 +13,11 @@ import { SinkronModule } from './sinkron/sinkron.module'
 import { KontakModule } from './kontak/kontak.module'
 import { StatusModule } from './status/status.module'
 import { SehatController } from './sehat.controller'
+import { VersiController } from './versi.controller'
 import { PeristiwaModule } from './common/peristiwa.service'
 
 @Module({
   imports: [RedisModule, PeristiwaModule,PrismaModule, AuthModule, PrekeyModule, PesanModule, PushModule, GrupModule, AdminModule, BerkasModule, FotoModule, SinkronModule, StatusModule, KontakModule],
-  controllers: [SehatController],
+  controllers: [SehatController, VersiController],
 })
 export class AppModule {}

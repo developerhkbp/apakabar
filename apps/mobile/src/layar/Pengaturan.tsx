@@ -1,12 +1,25 @@
 import { StatusBar } from 'expo-status-bar'
 import { useState } from 'react'
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native'
-import type { Sesi } from '../server'
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native'
+import app from '../../app.json'
+import { BASE, type Sesi } from '../server'
 import { Avatar } from '../avatar'
 import { s } from '../gaya'
 import { Logo, Wordmark } from '../logo'
 
-const VERSI = '1.0.0'
+const VERSI = app.expo.version
+const PAKET = 'id.or.hkbp.apakabar'
+
+/** Bandingkan versi bertitik: negatif bila a < b. */
+const bandingVersi = (a: string, b: string) => {
+  const x = a.split('.').map(Number)
+  const y = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0)
+  return 0
+}
+
+const bukaPlayStore = () =>
+  Linking.openURL(`market://details?id=${PAKET}`).catch(() => Linking.openURL(`https://play.google.com/store/apps/details?id=${PAKET}`).catch(() => {}))
 
 const Baris = ({ judul, isi, onPress, merah }: { judul: string; isi?: string; onPress?: () => void; merah?: boolean }) => (
   <Pressable onPress={onPress} disabled={!onPress} style={{ paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 0.5, borderBottomColor: '#E9EDEF' }}>
@@ -21,6 +34,27 @@ const Seksi = ({ t }: { t: string }) => (
 
 export function Pengaturan({ sesi, fotoV, bukaProfil, kembali, keluar }: { sesi: Sesi; fotoV?: number; bukaProfil: () => void; kembali: () => void; keluar: () => void }) {
   const [tentang, setTentang] = useState(false)
+  const [mengecek, setMengecek] = useState(false)
+  const cekPembaruan = async () => {
+    if (mengecek) return
+    setMengecek(true)
+    try {
+      const r = await fetch(`${BASE}/versi`)
+      if (!r.ok) throw new Error()
+      const { terbaru } = (await r.json()) as { terbaru: string }
+      if (bandingVersi(VERSI, terbaru) < 0) {
+        Alert.alert('Versi baru tersedia', `Versi ${terbaru} sudah tersedia (Anda memakai ${VERSI}).`, [
+          { text: 'Nanti', style: 'cancel' },
+          { text: 'Buka Play Store', onPress: bukaPlayStore },
+        ])
+      } else {
+        Alert.alert('Sudah terbaru', `Anda memakai versi terbaru (${VERSI}).`)
+      }
+    } catch {
+      Alert.alert('Tidak dapat memeriksa', 'Periksa koneksi internet lalu coba lagi.')
+    }
+    setMengecek(false)
+  }
   const peran = sesi.peran === 'ADMIN_UTAMA' ? 'Admin utama' : sesi.peran === 'ADMIN' ? 'Admin' : 'Anggota'
 
   if (tentang) {
@@ -76,6 +110,13 @@ export function Pengaturan({ sesi, fotoV, bukaProfil, kembali, keluar }: { sesi:
         <Baris judul="Menghapus pesan" isi="Tekan lama sebuah pesan untuk menghapusnya untuk Anda sendiri atau untuk semua orang." />
         <Seksi t="LAINNYA" />
         <Baris judul="Tentang aplikasi" isi={`Versi ${VERSI}`} onPress={() => setTentang(true)} />
+        <Pressable onPress={cekPembaruan} style={{ paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 0.5, borderBottomColor: '#E9EDEF', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 16, color: '#111B21' }}>Periksa pembaruan</Text>
+            <Text style={{ fontSize: 13, color: '#667781', marginTop: 3 }}>Cek versi terbaru dan buka halaman Play Store</Text>
+          </View>
+          {mengecek ? <ActivityIndicator color="#1976D2" /> : <Text style={{ color: '#1976D2', fontSize: 20 }}>›</Text>}
+        </Pressable>
         <Baris
           judul="Keluar"
           merah

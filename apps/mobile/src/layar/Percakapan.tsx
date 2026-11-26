@@ -203,7 +203,7 @@ export function Percakapan({ balasan, batalBalas, namaBalas, fotoPengirim, avata
                   <Text style={s.dihapusTeks}>🚫 Pesan ini dihapus</Text>
                 ) : (
                   <>
-                    {k.diteruskan ? <Text style={{ fontSize: 11.5, fontStyle: 'italic', color: '#667781', marginBottom: 2 }}>↪ Diteruskan</Text> : null}
+                    {k.diteruskan ? <Text style={{ fontSize: 11.5, fontStyle: 'italic', color: '#667781', marginBottom: 2 }}>↪ Diteruskan{k.asal ? ` dari ${k.asal.n}` : ''}</Text> : null}
                     {k.balas ? (
                       <Pressable
                         onPress={() => lompat(k.balas!.r, k.balas!.d)}
