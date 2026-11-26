@@ -46,8 +46,12 @@ type Native = {
   thumbnail(sumber: string, video: boolean, maks: number): Promise<string | null>
   /** Ubah foto HEIC/HEIF ke JPEG; mengembalikan jalur berkas JPEG baru atau null bila gagal. */
   keJpeg(sumber: string): Promise<string | null>
-  /** Simpan foto/video ke galeri (album "Apa Kabar"); true bila berhasil. */
+  /** Simpan ke galeri (foto/video) atau folder Unduhan (dokumen), subfolder "Apa Kabar"; true bila berhasil. */
   simpanKeGaleri(sumber: string, nama: string, mime: string): Promise<boolean>
+  /** Jumlah halaman PDF (0 bila gagal dibuka). */
+  pdfJumlah(sumber: string): Promise<number>
+  /** Render satu halaman PDF menjadi JPEG di cache. */
+  pdfHalaman(sumber: string, indeks: number, lebar: number): Promise<{ uri: string; w: number; h: number } | null>
   ukuranBerkas(sumber: string): number
   /** Isi yang dibagikan dari aplikasi lain lewat menu Bagikan (dibaca sekali); uri kosong = berkas gagal disalin/terlalu besar. */
   bagikanMasuk(): Promise<{ teks: string; berkas: { uri: string; nama: string; mime: string; ukuran: number }[] } | null>

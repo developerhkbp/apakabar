@@ -4,7 +4,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.os.Environment
@@ -175,8 +178,9 @@ object Lampiran {
     val berkas = File(bersihkan(sumber))
     if (!berkas.exists()) return false
     val video = mime.startsWith("video/")
-    val koleksi = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-    val folder = (if (video) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES) + "/Apa Kabar"
+    val gambar = mime.startsWith("image/")
+    val koleksi = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else if (gambar) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+    val folder = (if (video) Environment.DIRECTORY_MOVIES else if (gambar) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS) + "/Apa Kabar"
     val nilai = ContentValues().apply {
       put(MediaStore.MediaColumns.DISPLAY_NAME, nama)
       put(MediaStore.MediaColumns.MIME_TYPE, mime)
@@ -193,6 +197,31 @@ object Lampiran {
       false
     }
   }
+
+  /** Jumlah halaman PDF, atau 0 bila berkas tidak bisa dibuka. */
+  fun pdfJumlah(sumber: String): Int = try {
+    ParcelFileDescriptor.open(File(bersihkan(sumber)), ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
+  } catch (e: Exception) { 0 }
+
+  /** Render satu halaman PDF ke JPEG di cache; mengembalikan (jalur, lebar, tinggi) atau null. */
+  fun pdfHalaman(sumber: String, indeks: Int, lebar: Int, cache: File): Map<String, Any>? = try {
+    ParcelFileDescriptor.open(File(bersihkan(sumber)), ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+      PdfRenderer(fd).use { r ->
+        if (indeks < 0 || indeks >= r.pageCount) return null
+        r.openPage(indeks).use { h ->
+          val w = lebar.coerceIn(200, 2000)
+          val t = (w.toFloat() * h.height / h.width).toInt().coerceAtLeast(1)
+          val bmp = Bitmap.createBitmap(w, t, Bitmap.Config.ARGB_8888)
+          Canvas(bmp).drawColor(-1)
+          h.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+          val tujuan = File.createTempFile("pdf", ".jpg", cache)
+          FileOutputStream(tujuan).use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+          bmp.recycle()
+          mapOf("uri" to tujuan.absolutePath, "w" to w, "h" to t)
+        }
+      }
+    }
+  } catch (e: Exception) { null }
 
   fun keJpeg(sumber: String, cache: File): String? {
     val jalur = bersihkan(sumber)

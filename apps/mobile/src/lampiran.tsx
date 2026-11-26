@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker'
 import * as Sharing from 'expo-sharing'
 import { VideoView, useVideoPlayer } from 'expo-video'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Image, ToastAndroid, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Dimensions, FlatList, Image, ToastAndroid, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import Signal from '../modules/signal-protocol/src'
 import { adalahAudio, adalahFoto, adalahVideo, type Lampiran } from './konten'
 import { PemutarSuara } from './suara'
@@ -189,6 +189,40 @@ function GambarZoom({ uri }: { uri: string }) {
   )
 }
 
+/** Pembaca PDF internal (PdfRenderer bawaan Android): halaman dirender per layar lewat daftar. */
+function HalamanPdf({ uri }: { uri: string }) {
+  const [jumlah, setJumlah] = useState<number | null>(null)
+  const lebar = Dimensions.get('window').width
+  useEffect(() => { Signal.pdfJumlah(uri).then(setJumlah).catch(() => setJumlah(0)) }, [uri])
+  if (jumlah === null) return <ActivityIndicator color="#fff" size="large" />
+  if (!jumlah) return <Text style={{ color: '#fff', textAlign: 'center', padding: 24 }}>PDF tidak dapat dibuka. Gunakan tombol Unduh lalu buka dengan aplikasi PDF.</Text>
+  return (
+    <FlatList
+      data={Array.from({ length: jumlah }, (_, i) => i)}
+      keyExtractor={i => String(i)}
+      initialNumToRender={2}
+      windowSize={5}
+      contentContainerStyle={{ gap: 6, paddingBottom: 24 }}
+      renderItem={({ item }) => <PdfHal uri={uri} indeks={item} lebar={lebar} />}
+    />
+  )
+}
+
+function PdfHal({ uri, indeks, lebar }: { uri: string; indeks: number; lebar: number }) {
+  const [h, setH] = useState<{ uri: string; w: number; h: number } | null>(null)
+  useEffect(() => {
+    let batal = false
+    Signal.pdfHalaman(uri, indeks, Math.round(lebar * 2)).then(x => { if (!batal) setH(x) }).catch(() => {})
+    return () => { batal = true }
+  }, [uri, indeks, lebar])
+  const tinggi = h ? (lebar * h.h) / h.w : lebar * 1.4
+  return (
+    <View style={{ width: lebar, height: tinggi, backgroundColor: '#fff' }}>
+      {h ? <Image source={{ uri: `file://${h.uri}` }} style={{ width: lebar, height: tinggi }} resizeMode="contain" /> : <ActivityIndicator style={{ flex: 1 }} color="#999" />}
+    </View>
+  )
+}
+
 function PemutarVideo({ uri }: { uri: string }) {
   const p = useVideoPlayer(uri, x => { x.play() })
   return <VideoView player={p} style={{ flex: 1 }} nativeControls contentFit="contain" />
@@ -216,10 +250,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
         if (!dokumen && /^image\/hei[cf]/i.test(l.m)) {
           try { const j = await Signal.keJpeg(u); if (j) u = `file://${j}` } catch { /* pakai berkas asli */ }
         }
-        if (dokumen) {
-          try { if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(u, { mimeType: l.m, dialogTitle: l.n }) } catch { /* dibatalkan */ }
-          if (!batal) tutup()
-        } else setUri(u)
+        setUri(u)
       })
       .catch(e => { if (!batal) setGalat((e as Error).message || 'Gagal membuka berkas') })
     return () => { batal = true }
@@ -233,7 +264,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
       const nama = heif ? l.n.replace(/\.hei[cf]$/i, '') + '.jpg' : l.n
       const mime = heif ? 'image/jpeg' : l.m
       const ok = await Signal.simpanKeGaleri(uri, nama, mime)
-      ToastAndroid.show(ok ? 'Tersimpan di galeri (album Apa Kabar)' : 'Gagal menyimpan ke galeri', ToastAndroid.SHORT)
+      ToastAndroid.show(ok ? (dokumen ? 'Tersimpan di folder Unduhan (Apa Kabar)' : 'Tersimpan di galeri (album Apa Kabar)') : 'Gagal menyimpan', ToastAndroid.SHORT)
     } catch {
       ToastAndroid.show('Gagal menyimpan. Perbarui aplikasi lalu coba lagi.', ToastAndroid.LONG)
     }
@@ -246,7 +277,7 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingTop: 44, paddingHorizontal: 16, paddingBottom: 10 }}>
         <Pressable onPress={tutup} hitSlop={14}><Text style={{ color: '#fff', fontSize: 24 }}>←</Text></Pressable>
         <Text style={{ color: '#fff', fontSize: 15, flex: 1 }} numberOfLines={1}>{l.n}</Text>
-        {uri && !dokumen ? (
+        {uri ? (
           <Pressable onPress={simpan} hitSlop={14} disabled={menyimpan} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FFFFFF26', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7 }}>
             <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{menyimpan ? 'Menyimpan…' : '⬇ Unduh'}</Text>
           </Pressable>
@@ -266,6 +297,17 @@ export function Penampil({ l, ambil, tutup }: { l: Lampiran; ambil: (l: Lampiran
             <ActivityIndicator color="#fff" size="large" />
             <Text style={{ color: '#ccc' }}>Mengunduh dan membuka kunci…</Text>
           </View>
+        ) : dokumen ? (
+          /pdf/i.test(l.m) || /\.pdf$/i.test(l.n) ? <HalamanPdf uri={uri} /> : (
+            <View style={{ alignItems: 'center', padding: 24, gap: 16 }}>
+              <Text style={{ fontSize: 56 }}>📄</Text>
+              <Text style={{ color: '#fff', textAlign: 'center', fontSize: 15 }}>{l.n}</Text>
+              <Text style={{ color: '#aaa', fontSize: 12.5 }}>{ukuranTeks(l.u)}</Text>
+              <Pressable onPress={() => { Sharing.isAvailableAsync().then(async ok => { if (ok) await Sharing.shareAsync(uri, { mimeType: l.m, dialogTitle: l.n }) }).catch(() => {}) }} style={{ backgroundColor: '#1976D2', borderRadius: 22, paddingHorizontal: 24, paddingVertical: 11 }}>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Buka dengan aplikasi lain</Text>
+              </Pressable>
+            </View>
+          )
         ) : adalahVideo(l) ? (
           <PemutarVideo uri={uri} />
         ) : (

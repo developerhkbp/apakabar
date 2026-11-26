@@ -231,6 +231,8 @@ class SignalProtocolModule : Module() {
     AsyncFunction("thumbnail") { sumber: String, video: Boolean, maks: Int -> Lampiran.thumbnail(sumber, video, maks) }
     AsyncFunction("keJpeg") { sumber: String -> Lampiran.keJpeg(sumber, appContext.reactContext!!.cacheDir) }
     AsyncFunction("simpanKeGaleri") { sumber: String, nama: String, mime: String -> Lampiran.simpanKeGaleri(appContext.reactContext!!, sumber, nama, mime) }
+    AsyncFunction("pdfJumlah") { sumber: String -> Lampiran.pdfJumlah(sumber) }
+    AsyncFunction("pdfHalaman") { sumber: String, indeks: Int, lebar: Int -> Lampiran.pdfHalaman(sumber, indeks, lebar, appContext.reactContext!!.cacheDir) }
     Function("ukuranBerkas") { sumber: String -> Lampiran.ukuran(sumber) }
   }
 }
